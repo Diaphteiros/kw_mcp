@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/yaml"
 
@@ -37,12 +38,12 @@ type MCPLandscape struct {
 	Onboarding *ClusterAccess `json:"onboarding"`
 	// Platform describes the access to the platform cluster.
 	Platform *ClusterAccess `json:"platform"`
-	// AdditionalGardenerProjects lists additional Gardener projects that host clusters of this MCP landscape.
-	// The projects of the onboarding and platform cluster must not be listed here.
+	// AdditionalGardenerProjectsPerLandscape maps Gardener landscape names to lists of additional Gardener projects that host clusters of this MCP landscape.
+	// The projects of the onboarding and platform cluster don't have to be listed here.
 	// This is used to determine the landscape when the cluster targeted by the last kubeswitcher call was not chosen via this plugin.
-	AdditionalGardenerProjects []string `json:"additionalGardenerProjects,omitempty"`
-	// GardenerProjectsSet is computed during config loading and contains the project names from platform and onboarding cluster as well as the additional Gardener projects for easy lookup. It is not serialized to the config file.
-	GardenerProjectsSet sets.Set[string] `json:"-"`
+	AdditionalGardenerProjectsPerLandscape map[string][]string `json:"additionalGardenerProjectsPerLandscape,omitempty"`
+	// GardenerProjectsSetPerLandscape is computed during config loading and contains the project names from platform and onboarding cluster as well as the additional Gardener projects for easy lookup. It is not serialized to the config file.
+	GardenerProjectsSetPerLandscape map[string]sets.Set[string] `json:"-"`
 }
 
 type ClusterAccess struct {
@@ -52,6 +53,9 @@ type ClusterAccess struct {
 	// Gardener describes the access via Gardener.
 	// Mutually exclusive with all other access types.
 	Gardener *GardenerClusterAccess `json:"gardener,omitempty"`
+	// Kind describes the access via Kind.
+	// Mutually exclusive with all other access types.
+	Kind *KindClusterAccess `json:"kind,omitempty"`
 }
 
 type KubeconfigClusterAccess struct {
@@ -70,6 +74,11 @@ type GardenerClusterAccess struct {
 	Project string `json:"project"`
 	// Shoot cluster name.
 	Shoot string `json:"shoot"`
+}
+
+type KindClusterAccess struct {
+	// Name of the kind cluster.
+	Name string `json:"name"`
 }
 
 func (c *MCPConfig) String() string {
@@ -93,6 +102,22 @@ func (c *MCPConfig) Default() error {
 	if c.Landscapes == nil {
 		c.Landscapes = map[string]*MCPLandscape{}
 	}
+
+	for _, landscape := range c.Landscapes {
+		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjectsPerLandscape) > 0 {
+			landscape.GardenerProjectsSetPerLandscape = map[string]sets.Set[string]{}
+			if landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil && landscape.Onboarding.Gardener.Project != "" {
+				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Landscape] = sets.New[string](landscape.Onboarding.Gardener.Project)
+			}
+			if landscape.Platform != nil && landscape.Platform.Gardener != nil && landscape.Platform.Gardener.Project != "" {
+				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Landscape] = sets.New[string](landscape.Platform.Gardener.Project)
+			}
+			for gardenerLandscape, projects := range landscape.AdditionalGardenerProjectsPerLandscape {
+				landscape.GardenerProjectsSetPerLandscape[gardenerLandscape] = sets.New[string](projects...)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -112,16 +137,25 @@ func (c *MCPConfig) Validate() error {
 				errs = append(errs, field.Required(cPath, "cluster access must not be empty"))
 				continue
 			}
-			if (cluster.Kubeconfig == nil) == (cluster.Gardener == nil) {
-				errs = append(errs, field.Invalid(cPath, cluster, "exactly one of kubeconfig and gardener must be set"))
+			setAccessTypes := 0
+			if cluster.Kubeconfig != nil {
+				setAccessTypes++
+			}
+			if cluster.Gardener != nil {
+				setAccessTypes++
+			}
+			if cluster.Kind != nil {
+				setAccessTypes++
+			}
+			if setAccessTypes != 1 {
+				errs = append(errs, field.Invalid(cPath, cluster, "exactly one of kubeconfig, gardener, and kind must be set"))
 			}
 			if cluster.Kubeconfig != nil {
 				curPath := cPath.Child("kubeconfig")
 				if (cluster.Kubeconfig.Path == "") == (len(cluster.Kubeconfig.Inline) == 0) {
 					errs = append(errs, field.Invalid(curPath, cluster.Kubeconfig, "exactly one of path and inline must be set"))
 				}
-			}
-			if cluster.Gardener != nil {
+			} else if cluster.Gardener != nil {
 				curPath := cPath.Child("gardener")
 				if cluster.Gardener.Landscape == "" {
 					errs = append(errs, field.Required(curPath.Child("landscape"), "landscape must not be empty"))
@@ -131,6 +165,11 @@ func (c *MCPConfig) Validate() error {
 				}
 				if cluster.Gardener.Shoot == "" {
 					errs = append(errs, field.Required(curPath.Child("shoot"), "shoot must not be empty"))
+				}
+			} else if cluster.Kind != nil {
+				curPath := cPath.Child("kind")
+				if cluster.Kind.Name == "" {
+					errs = append(errs, field.Required(curPath.Child("name"), "name must not be empty"))
 				}
 			}
 		}

@@ -2,16 +2,26 @@ package state
 
 import (
 	"fmt"
+	"path/filepath"
 
+	"github.com/Diaphteiros/kw/cmd/basic"
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
 	"github.com/Diaphteiros/kw/pluginlib/pkg/debug"
-	liberrors "github.com/Diaphteiros/kw/pluginlib/pkg/errors"
 	libstate "github.com/Diaphteiros/kw/pluginlib/pkg/state"
+	"github.com/Diaphteiros/kw/pluginlib/pkg/utils"
+	gardenstate "github.com/Diaphteiros/kw_garden/pkg/state"
+	kindstate "github.com/Diaphteiros/kw_kind/pkg/state"
+	"github.com/Diaphteiros/kw_mcp/pkg/config"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/yaml"
 )
 
 type MCPState struct {
 	Focus Focus `json:"focus"`
+}
+
+func (s *MCPState) copyFrom(other *MCPState) {
+	s.Focus = other.Focus
 }
 
 // String returns a YAML representation of the state.
@@ -33,15 +43,234 @@ func (s *MCPState) Notification() string {
 
 // Load fills the receiver state object with the data from the kubeswitcher state.
 // The first return value is true if any state was actually loaded, false otherwise.
-func (s *MCPState) Load(con *libcontext.Context) (bool, error) {
+func (s *MCPState) Load(con *libcontext.Context, cfg *config.MCPConfig) (bool, error) {
 	debug.Debug("Loading MCP state")
-	ts, err := libstate.LoadTypedState[*MCPState](con.GenericStatePath, con.PluginStatePath, con.CurrentPluginName)
+	rawState, err := libstate.LoadState(con.GenericStatePath, con.PluginStatePath)
 	if err != nil {
-		return false, liberrors.IgnoreStateFromAnotherPluginError(fmt.Errorf("error loading kubeswitcher state: %w", err))
+		return false, fmt.Errorf("error loading kubeswitcher state: %w", err)
 	}
-	if ts == nil || ts.PluginState == nil {
-		return false, nil
+	loaded, err := DetermineMCPStateFromRawState(con, cfg, rawState)
+	if err != nil {
+		return false, fmt.Errorf("error determining MCP state from raw state: %w", err)
 	}
-	s.Focus = ts.PluginState.Focus
-	return true, nil
+	if loaded != nil {
+		s.copyFrom(loaded)
+		debug.Debug("Successfully loaded MCP state (focus: %v)", loaded.Focus)
+		return true, nil
+	}
+	debug.Debug("No MCP state could be loaded")
+	return false, nil
+}
+
+// DetermineMCPStateFromRawState takes the raw kubeswitcher state and tries to determine the MCP state from it based on the plugin that handled the last command and the content of the plugin state.
+// If the state was handled by this plugin, it is loaded directly.
+// If the state was handled by the garden plugin, it is inferred from the garden state based on the Gardener landscape and project targeted in the last command as well as the mapping of Gardener projects to MCP landscapes specified in the config.
+// If the state was handled by the kind plugin, it is inferred from the kind state based on the targeted kind cluster and the mapping of kind clusters to MCP landscapes specified in the config.
+// If the state was handled by the builtin custom command, it is inferred from the kubeconfig path and content of the currently selected cluster and the kubeconfig paths and contents specified in the config for the platform and onboarding cluster of each landscape.
+// If the state was handled by any other plugin or if inferring the state from the garden or kind plugin state fails, nil is returned.
+func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfig, rawState *libstate.State) (*MCPState, error) {
+	if rawState == nil || rawState.LastUsed == nil {
+		debug.Debug("Unable to determine plugin which handled the last command")
+		return nil, nil
+	}
+	res := &MCPState{
+		Focus: Focus{},
+	}
+	switch rawState.LastUsed.Plugin {
+	case con.CurrentPluginName:
+		debug.Debug("Last cluster was selected via mcp plugin, loading state")
+		err := yaml.Unmarshal(rawState.RawPluginState, &res)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling plugin state: %w", err)
+		}
+	case cfg.GardenPluginName:
+		debug.Debug("Last cluster was selected via %s plugin, trying to infer MCP state from garden state", cfg.GardenPluginName)
+		// This is ugly, since we depend on the internal structure of another plugin, but there is not really a better option.
+		gs := &gardenstate.GardenctlState{}
+		err := yaml.Unmarshal(rawState.RawPluginState, gs)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling garden plugin state: %w", err)
+		}
+		// try to match the Gardener state to one of the MCP landscapes in the config
+		var mcpln string
+		var mcpl *config.MCPLandscape
+		for name, landscape := range cfg.Landscapes {
+			if landscape.GardenerProjectsSetPerLandscape != nil && landscape.GardenerProjectsSetPerLandscape[gs.Garden] != nil && landscape.GardenerProjectsSetPerLandscape[gs.Garden].Has(gs.Project) {
+				mcpl = landscape
+				mcpln = name
+				break
+			}
+		}
+		if mcpl == nil {
+			// no landscape found for the targeted Gardener project
+			debug.Debug("No MCP landscape found for targeted Gardener project '%s' in garden plugin state", gs.Project)
+			return nil, nil
+		}
+		debug.Debug("MCP landscape '%s' found for targeted Gardener project '%s' in garden plugin state", mcpln, gs.Project)
+		// check if platform or onboarding cluster was targeted and set state accordingly
+		res.Focus.Landscape = mcpln
+		if mcpl.Platform != nil && mcpl.Platform.Gardener != nil && gs.Garden == mcpl.Platform.Gardener.Landscape && gs.Project == mcpl.Platform.Gardener.Project && gs.Shoot == mcpl.Platform.Gardener.Shoot {
+			debug.Debug("Platform cluster is targeted")
+			res.Focus.Cluster = MCPClusterPlatform
+		} else if mcpl.Onboarding != nil && mcpl.Onboarding.Gardener != nil && gs.Garden == mcpl.Onboarding.Gardener.Landscape && gs.Project == mcpl.Onboarding.Gardener.Project && gs.Shoot == mcpl.Onboarding.Gardener.Shoot {
+			debug.Debug("Onboarding cluster is targeted")
+			res.Focus.Cluster = MCPClusterOnboarding
+		} else {
+			debug.Debug("Identifying clusters other than platform and onboarding not implemented yet")
+		}
+		return res, nil
+	case cfg.KindPluginName:
+		debug.Debug("Last cluster was selected via %s plugin, trying to infer MCP state from kind state", cfg.KindPluginName)
+		ks := &kindstate.KindState{}
+		err := yaml.Unmarshal(rawState.RawPluginState, ks)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshaling kind plugin state: %w", err)
+		}
+		// try to match kind cluster to an MCP landscape specified in the config
+		potentialCandidates := map[string]*config.MCPLandscape{}
+		for name, landscape := range cfg.Landscapes {
+			if landscape.Platform != nil && landscape.Platform.Kind != nil {
+				potentialCandidates[name] = landscape
+				if landscape.Platform.Kind.Name == ks.ClusterName {
+					res.Focus.Cluster = MCPClusterPlatform
+					res.Focus.Landscape = name
+					return res, nil
+				}
+			}
+			if landscape.Onboarding != nil && landscape.Onboarding.Kind != nil {
+				potentialCandidates[name] = landscape
+				if landscape.Onboarding.Kind.Name == ks.ClusterName {
+					res.Focus.Cluster = MCPClusterOnboarding
+					res.Focus.Landscape = name
+					return res, nil
+				}
+			}
+		}
+		var mcpln string
+		debug.Debug("Currently selected kind cluster '%s' does not match any configured platform or onboarding cluster", ks.ClusterName)
+		switch len(potentialCandidates) {
+		case 0:
+			debug.Debug("No kind clusters configured for any MCP landscape, unable to determine landscape from kind state")
+			return nil, nil
+		case 1:
+			for name := range potentialCandidates {
+				mcpln = name
+			}
+			debug.Debug("Exactly one MCP landscape has a kind cluster configured, assuming targeted cluster belongs to this landscape '%s'", mcpln)
+		default:
+			debug.Debug("Multiple MCP landscapes have kind clusters configured, unable to determine landscape from kind state")
+			return nil, nil
+		}
+		res.Focus.Landscape = mcpln
+		return res, nil
+	case basic.CustomCmdPluginName:
+		debug.Debug("Last cluster was selected via builtin 'custom' subcommand, trying to match kubeconfig path and content against landscape configs")
+		kcfgPath, err := filepath.EvalSymlinks(con.KubeconfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving kubeconfig path '%s': %w", con.KubeconfigPath, err)
+		}
+		debug.Debug("Resolved kubeconfig path: '%s'", kcfgPath)
+		var apiServer string
+		kcfg, err := utils.ParseKubeconfigFromFile(kcfgPath)
+		if err != nil {
+			debug.Debug("Unable to parse currently selected kubeconfig: %s", err.Error())
+		} else {
+			apiServer, err = utils.GetCurrentApiserverHost(kcfg)
+			if err != nil {
+				debug.Debug("Unable to get apiserver host from currently selected kubeconfig: %s", err.Error())
+			}
+		}
+		for name, landscape := range cfg.Landscapes {
+			if landscape.Platform != nil && landscape.Platform.Kubeconfig != nil && landscape.Platform.Kubeconfig.Path != "" {
+				landscapeKcfgPath, err := filepath.EvalSymlinks(landscape.Platform.Kubeconfig.Path)
+				if err != nil {
+					debug.Debug("Error resolving kubeconfig path '%s' for landscape '%s': %s", landscape.Platform.Kubeconfig.Path, name, err.Error())
+				} else {
+					if landscapeKcfgPath == kcfgPath {
+						debug.Debug("Kubeconfig path matches platform kubeconfig for landscape '%s'", name)
+						res.Focus.Cluster = MCPClusterPlatform
+						res.Focus.Landscape = name
+						return res, nil
+					}
+				}
+			}
+			if landscape.Onboarding != nil && landscape.Onboarding.Kubeconfig != nil && landscape.Onboarding.Kubeconfig.Path != "" {
+				landscapeKcfgPath, err := filepath.EvalSymlinks(landscape.Onboarding.Kubeconfig.Path)
+				if err != nil {
+					debug.Debug("Error resolving kubeconfig path '%s' for landscape '%s': %s", landscape.Onboarding.Kubeconfig.Path, name, err.Error())
+				} else {
+					if landscapeKcfgPath == kcfgPath {
+						debug.Debug("Kubeconfig path matches onboarding kubeconfig for landscape '%s'", name)
+						res.Focus.Cluster = MCPClusterOnboarding
+						res.Focus.Landscape = name
+						return res, nil
+					}
+				}
+			}
+		}
+		// no path matched, try to match api server host
+		if apiServer != "" {
+			for name, landscape := range cfg.Landscapes {
+				if landscape.Platform != nil && landscape.Platform.Kubeconfig != nil {
+					var landscapeKcfg *clientcmdapi.Config
+					if landscape.Platform.Kubeconfig.Path != "" {
+						landscapeKcfg, err = utils.ParseKubeconfigFromFile(landscape.Platform.Kubeconfig.Path)
+						if err != nil {
+							debug.Debug("Error parsing kubeconfig '%s' for platform cluster of landscape '%s': %s", landscape.Platform.Kubeconfig.Path, name, err.Error())
+						}
+					} else if landscape.Platform.Kubeconfig.Inline != nil {
+						landscapeKcfg, err = utils.ParseKubeconfig(landscape.Platform.Kubeconfig.Inline)
+						if err != nil {
+							debug.Debug("Error parsing inline kubeconfig for platform cluster of landscape '%s': %s", name, err.Error())
+						}
+					}
+					if landscapeKcfg != nil {
+						landscapeApiServer, err := utils.GetCurrentApiserverHost(landscapeKcfg)
+						if err != nil {
+							debug.Debug("Unable to get apiserver host from kubeconfig for platform cluster of landscape '%s': %s", name, err.Error())
+						} else if landscapeApiServer == apiServer {
+							debug.Debug("Apiserver host matches platform kubeconfig for landscape '%s'", name)
+							res.Focus.Cluster = MCPClusterPlatform
+							res.Focus.Landscape = name
+							return res, nil
+						}
+					} else {
+						debug.Debug("Unable to determine apiserver host for platform cluster of landscape '%s'", name)
+					}
+				}
+				if landscape.Onboarding != nil && landscape.Onboarding.Kubeconfig != nil {
+					var landscapeKcfg *clientcmdapi.Config
+					if landscape.Onboarding.Kubeconfig.Path != "" {
+						landscapeKcfg, err = utils.ParseKubeconfigFromFile(landscape.Onboarding.Kubeconfig.Path)
+						if err != nil {
+							debug.Debug("Error parsing kubeconfig '%s' for onboarding cluster of landscape '%s': %s", landscape.Onboarding.Kubeconfig.Path, name, err.Error())
+						}
+					} else if landscape.Onboarding.Kubeconfig.Inline != nil {
+						landscapeKcfg, err = utils.ParseKubeconfig(landscape.Onboarding.Kubeconfig.Inline)
+						if err != nil {
+							debug.Debug("Error parsing inline kubeconfig for onboarding cluster of landscape '%s': %s", name, err.Error())
+						}
+					}
+					if landscapeKcfg != nil {
+						landscapeApiServer, err := utils.GetCurrentApiserverHost(landscapeKcfg)
+						if err != nil {
+							debug.Debug("Unable to get apiserver host from kubeconfig for onboarding cluster of landscape '%s': %s", name, err.Error())
+						} else if landscapeApiServer == apiServer {
+							debug.Debug("Apiserver host matches onboarding kubeconfig for landscape '%s'", name)
+							res.Focus.Cluster = MCPClusterOnboarding
+							res.Focus.Landscape = name
+							return res, nil
+						}
+					} else {
+						debug.Debug("Unable to determine apiserver host for onboarding cluster of landscape '%s'", name)
+					}
+				}
+			}
+		}
+		debug.Debug("Unable to identify matching MCP landscape")
+	default:
+		debug.Debug("Unknown plugin '%s' handled the last command, unable to determine state from it", rawState.LastUsed.Plugin)
+		return nil, nil
+	}
+	return nil, nil
 }
