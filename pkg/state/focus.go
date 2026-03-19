@@ -58,6 +58,10 @@ func NewFocus(landscape, project, workspace, cluster string) *Focus {
 	}
 }
 
+func NewEmptyFocus() *Focus {
+	return &Focus{}
+}
+
 // Focus returns the type of the current focus.
 // This is computed based on the fields that are set (= not an empty string).
 // - Landscape + Cluster (<onboarding> or <platform>): landscape
@@ -170,6 +174,14 @@ func (f *Focus) ToLandscape(landscape, cluster string) *Focus {
 	return f
 }
 
+func (f *Focus) ToOnboardingCluster(landscape string) *Focus {
+	return f.ToLandscape(landscape, MCPClusterOnboarding)
+}
+
+func (f *Focus) ToPlatformCluster(landscape string) *Focus {
+	return f.ToLandscape(landscape, MCPClusterPlatform)
+}
+
 func (f *Focus) ToProject(project string) *Focus {
 	f.Project = project
 	f.Workspace = ""
@@ -238,4 +250,24 @@ func (f *Focus) ClusterHashID() string {
 		return ctrlutils.NameHashSHAKE128Base32(f.Project, f.Workspace, f.Cluster)
 	}
 	return ""
+}
+
+func (f *Focus) IsOnboardingCluster() bool {
+	return f.Focus() == FocusTypeLandscape && f.Cluster == MCPClusterOnboarding
+}
+
+func (f *Focus) IsPlatformCluster() bool {
+	return f.Focus() == FocusTypeLandscape && f.Cluster == MCPClusterPlatform
+}
+
+func (f *Focus) DeepCopy() *Focus {
+	if f == nil {
+		return nil
+	}
+	return &Focus{
+		Landscape: f.Landscape,
+		Cluster:   f.Cluster,
+		Project:   f.Project,
+		Workspace: f.Workspace,
+	}
 }

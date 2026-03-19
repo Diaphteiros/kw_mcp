@@ -21,6 +21,11 @@ func init() {
 	openmcpinstall.InstallOperatorAPIsOnboarding(Scheme)
 }
 
+const (
+	MCPVersionV1 = "v1"
+	MCPVersionV2 = "v2"
+)
+
 type MCPConfig struct {
 	// GardenPluginName is the name under which the kubeswitcher garden plugin is registered.
 	// This is required if any Gardener cluster access is configured.
@@ -31,6 +36,8 @@ type MCPConfig struct {
 	KindPluginName string `json:"kindPluginName"`
 	// Landscapes describes the MCP landscapes and how to reach their respective clusters.
 	Landscapes map[string]*MCPLandscape `json:"landscapes"`
+	// DefaultMCPVersion specifies the default MCP version to use for commands, if not specified via a flag. Defaults to 'v2' if not set.
+	DefaultMCPVersion string `json:"defaultMCPVersion"`
 }
 
 type MCPLandscape struct {
@@ -102,6 +109,9 @@ func (c *MCPConfig) Default() error {
 	if c.Landscapes == nil {
 		c.Landscapes = map[string]*MCPLandscape{}
 	}
+	if c.DefaultMCPVersion == "" {
+		c.DefaultMCPVersion = MCPVersionV2
+	}
 
 	for _, landscape := range c.Landscapes {
 		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjectsPerLandscape) > 0 {
@@ -123,6 +133,10 @@ func (c *MCPConfig) Default() error {
 
 func (c *MCPConfig) Validate() error {
 	errs := field.ErrorList{}
+
+	if c.DefaultMCPVersion != MCPVersionV1 && c.DefaultMCPVersion != MCPVersionV2 {
+		errs = append(errs, field.Invalid(field.NewPath("defaultMCPVersion"), c.DefaultMCPVersion, fmt.Sprintf("default MCP version must be either '%s' or '%s'", MCPVersionV1, MCPVersionV2)))
+	}
 
 	fldPath := field.NewPath("landscapes")
 	for landscape, clusters := range c.Landscapes {

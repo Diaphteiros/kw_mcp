@@ -21,7 +21,17 @@ type MCPState struct {
 }
 
 func (s *MCPState) copyFrom(other *MCPState) {
-	s.Focus = other.Focus
+	s.Focus = *other.Focus.DeepCopy()
+}
+
+func (s *MCPState) DeepCopy() *MCPState {
+	if s == nil {
+		return nil
+	}
+	res := &MCPState{
+		Focus: *s.Focus.DeepCopy(),
+	}
+	return res
 }
 
 // String returns a YAML representation of the state.

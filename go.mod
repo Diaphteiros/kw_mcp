@@ -5,8 +5,8 @@ go 1.25.7
 require (
 	github.com/Diaphteiros/kw/pluginlib v1.0.1
 	github.com/mandelsoft/vfs v0.4.4
-	github.com/openmcp-project/controller-utils v0.24.0
-	github.com/openmcp-project/openmcp-operator/api v0.17.1
+	github.com/openmcp-project/controller-utils v0.25.2
+	github.com/openmcp-project/openmcp-operator/api v0.18.1
 	github.com/spf13/cobra v1.10.1
 	k8s.io/apimachinery v0.35.0
 	k8s.io/client-go v0.35.0
@@ -55,6 +55,9 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/nsf/termbox-go v1.1.1 // indirect
+	github.com/openmcp-project/mcp-operator/api v0.52.0 // indirect
+	github.com/openmcp-project/openmcp-operator/lib v0.18.1 // indirect
+	github.com/openmcp-project/project-workspace-operator/api v1.3.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
@@ -83,6 +86,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912 // indirect
 	k8s.io/utils v0.0.0-20260108192941-914a6e750570 // indirect
 	sigs.k8s.io/controller-runtime v0.23.1 // indirect
+	sigs.k8s.io/gateway-api v1.4.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
