@@ -16,6 +16,7 @@ import (
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
 	"github.com/Diaphteiros/kw/pluginlib/pkg/debug"
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"
+
 	"github.com/Diaphteiros/kw_mcp/pkg/config"
 	"github.com/Diaphteiros/kw_mcp/pkg/state"
 )
@@ -133,7 +134,7 @@ TODO`,
 					}
 				}
 				// ensure that the kubeconfig is pointing to the onboarding cluster
-				if cs.IntermediateState == nil || !(cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsOnboardingCluster()) {
+				if cs.IntermediateState == nil || cs.IntermediateState.Focus.Landscape != cs.LandscapeName || !cs.IntermediateState.Focus.IsOnboardingCluster() {
 					debug.Debug("Not targeting the onboarding cluster at the moment, issuing internal call to switch to it")
 					switchToOnboardingCluster(con, cfg, cs)
 					return
@@ -151,7 +152,7 @@ TODO`,
 			} else if platformArg {
 				// this means that we just need to target the platform cluster
 				cs.Final = true
-				if cs.IntermediateState == nil || !(cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsPlatformCluster()) {
+				if cs.IntermediateState == nil || cs.IntermediateState.Focus.Landscape != cs.LandscapeName || !cs.IntermediateState.Focus.IsPlatformCluster() {
 					debug.Debug("Not targeting the platform cluster at the moment, issuing internal call to switch to it")
 					switchToPlatformCluster(con, cfg, cs)
 					return

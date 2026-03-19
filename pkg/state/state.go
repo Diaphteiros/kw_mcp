@@ -11,9 +11,10 @@ import (
 	"github.com/Diaphteiros/kw/pluginlib/pkg/utils"
 	gardenstate "github.com/Diaphteiros/kw_garden/pkg/state"
 	kindstate "github.com/Diaphteiros/kw_kind/pkg/state"
-	"github.com/Diaphteiros/kw_mcp/pkg/config"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/yaml"
+
+	"github.com/Diaphteiros/kw_mcp/pkg/config"
 )
 
 type MCPState struct {
@@ -221,59 +222,14 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		// no path matched, try to match api server host
 		if apiServer != "" {
 			for name, landscape := range cfg.Landscapes {
-				if landscape.Platform != nil && landscape.Platform.Kubeconfig != nil {
-					var landscapeKcfg *clientcmdapi.Config
-					if landscape.Platform.Kubeconfig.Path != "" {
-						landscapeKcfg, err = utils.ParseKubeconfigFromFile(landscape.Platform.Kubeconfig.Path)
-						if err != nil {
-							debug.Debug("Error parsing kubeconfig '%s' for platform cluster of landscape '%s': %s", landscape.Platform.Kubeconfig.Path, name, err.Error())
-						}
-					} else if landscape.Platform.Kubeconfig.Inline != nil {
-						landscapeKcfg, err = utils.ParseKubeconfig(landscape.Platform.Kubeconfig.Inline)
-						if err != nil {
-							debug.Debug("Error parsing inline kubeconfig for platform cluster of landscape '%s': %s", name, err.Error())
-						}
-					}
-					if landscapeKcfg != nil {
-						landscapeApiServer, err := utils.GetCurrentApiserverHost(landscapeKcfg)
-						if err != nil {
-							debug.Debug("Unable to get apiserver host from kubeconfig for platform cluster of landscape '%s': %s", name, err.Error())
-						} else if landscapeApiServer == apiServer {
-							debug.Debug("Apiserver host matches platform kubeconfig for landscape '%s'", name)
-							res.Focus.Cluster = MCPClusterPlatform
-							res.Focus.Landscape = name
-							return res, nil
-						}
-					} else {
-						debug.Debug("Unable to determine apiserver host for platform cluster of landscape '%s'", name)
-					}
-				}
-				if landscape.Onboarding != nil && landscape.Onboarding.Kubeconfig != nil {
-					var landscapeKcfg *clientcmdapi.Config
-					if landscape.Onboarding.Kubeconfig.Path != "" {
-						landscapeKcfg, err = utils.ParseKubeconfigFromFile(landscape.Onboarding.Kubeconfig.Path)
-						if err != nil {
-							debug.Debug("Error parsing kubeconfig '%s' for onboarding cluster of landscape '%s': %s", landscape.Onboarding.Kubeconfig.Path, name, err.Error())
-						}
-					} else if landscape.Onboarding.Kubeconfig.Inline != nil {
-						landscapeKcfg, err = utils.ParseKubeconfig(landscape.Onboarding.Kubeconfig.Inline)
-						if err != nil {
-							debug.Debug("Error parsing inline kubeconfig for onboarding cluster of landscape '%s': %s", name, err.Error())
-						}
-					}
-					if landscapeKcfg != nil {
-						landscapeApiServer, err := utils.GetCurrentApiserverHost(landscapeKcfg)
-						if err != nil {
-							debug.Debug("Unable to get apiserver host from kubeconfig for onboarding cluster of landscape '%s': %s", name, err.Error())
-						} else if landscapeApiServer == apiServer {
-							debug.Debug("Apiserver host matches onboarding kubeconfig for landscape '%s'", name)
-							res.Focus.Cluster = MCPClusterOnboarding
-							res.Focus.Landscape = name
-							return res, nil
-						}
-					} else {
-						debug.Debug("Unable to determine apiserver host for onboarding cluster of landscape '%s'", name)
-					}
+				if apiServerMatchesClusterAccess(name, "platform", apiServer, landscape.Platform) {
+					res.Focus.Cluster = MCPClusterPlatform
+					res.Focus.Landscape = name
+					return res, nil
+				} else if apiServerMatchesClusterAccess(name, "onboarding", apiServer, landscape.Onboarding) {
+					res.Focus.Cluster = MCPClusterOnboarding
+					res.Focus.Landscape = name
+					return res, nil
 				}
 			}
 		}
@@ -283,4 +239,34 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		return nil, nil
 	}
 	return nil, nil
+}
+
+func apiServerMatchesClusterAccess(landscapeName, logId, apiServer string, ca *config.ClusterAccess) bool {
+	if ca != nil && ca.Kubeconfig != nil {
+		var landscapeKcfg *clientcmdapi.Config
+		var err error
+		if ca.Kubeconfig.Path != "" {
+			landscapeKcfg, err = utils.ParseKubeconfigFromFile(ca.Kubeconfig.Path)
+			if err != nil {
+				debug.Debug("Error parsing kubeconfig '%s' for %s cluster of landscape '%s': %s", ca.Kubeconfig.Path, logId, landscapeName, err.Error())
+			}
+		} else if ca.Kubeconfig.Inline != nil {
+			landscapeKcfg, err = utils.ParseKubeconfig(ca.Kubeconfig.Inline)
+			if err != nil {
+				debug.Debug("Error parsing inline kubeconfig for %s cluster of landscape '%s': %s", logId, landscapeName, err.Error())
+			}
+		}
+		if landscapeKcfg != nil {
+			landscapeApiServer, err := utils.GetCurrentApiserverHost(landscapeKcfg)
+			if err != nil {
+				debug.Debug("Unable to get apiserver host from kubeconfig for %s cluster of landscape '%s': %s", logId, landscapeName, err.Error())
+			} else if landscapeApiServer == apiServer {
+				debug.Debug("Apiserver host matches %s kubeconfig for landscape '%s'", logId, landscapeName)
+				return true
+			}
+		} else {
+			debug.Debug("Unable to determine apiserver host for %s cluster of landscape '%s'", logId, landscapeName)
+		}
+	}
+	return false
 }

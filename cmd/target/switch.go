@@ -10,44 +10,40 @@ import (
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"
+
 	"github.com/Diaphteiros/kw_mcp/pkg/config"
 	"github.com/Diaphteiros/kw_mcp/pkg/state"
 )
 
 func switchToPlatformCluster(con *libcontext.Context, cfg *config.MCPConfig, cs *callState) {
-	landscape, ok := cfg.Landscapes[cs.LandscapeName]
-	if !ok {
-		libutils.Fatal(1, "landscape '%s' not found in config", cs.LandscapeName)
-	}
-	if landscape.Platform == nil {
-		libutils.Fatal(1, "landscape '%s' does not have a platform cluster configured", cs.LandscapeName)
-	}
-
-	cs.IntermediateState = &state.MCPState{Focus: *state.NewEmptyFocus().ToPlatformCluster(cs.LandscapeName)}
-	internalCall, err := computeInternalCallCommandForSwitchToAccess(con, cfg, landscape.Platform)
-	if err != nil {
-		libutils.Fatal(1, "error computing internal call command: %w", err)
-	}
-	cbiJson, err := json.MarshalIndent(cs, "", "  ")
-	if err != nil {
-		libutils.Fatal(1, "error marshalling callback info into json: %w", err)
-	}
-	if err := con.WriteInternalCall(internalCall, cbiJson); err != nil {
-		libutils.Fatal(1, "error writing internal call data: %w", err)
-	}
+	switchToPlatformOrOnboardingCluster(con, cfg, cs, false)
 }
 
 func switchToOnboardingCluster(con *libcontext.Context, cfg *config.MCPConfig, cs *callState) {
+	switchToPlatformOrOnboardingCluster(con, cfg, cs, true)
+}
+
+func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MCPConfig, cs *callState, targetOnboarding bool) {
+	logId := "platform"
+	if targetOnboarding {
+		logId = "onboarding"
+	}
 	landscape, ok := cfg.Landscapes[cs.LandscapeName]
 	if !ok {
 		libutils.Fatal(1, "landscape '%s' not found in config", cs.LandscapeName)
 	}
-	if landscape.Onboarding == nil {
-		libutils.Fatal(1, "landscape '%s' does not have an onboarding cluster configured", cs.LandscapeName)
+	var ca *config.ClusterAccess
+	if targetOnboarding {
+		ca = landscape.Onboarding
+	} else {
+		ca = landscape.Platform
+	}
+	if ca == nil {
+		libutils.Fatal(1, "landscape '%s' does not have an %s cluster configured", cs.LandscapeName, logId)
 	}
 
 	cs.IntermediateState = &state.MCPState{Focus: *state.NewEmptyFocus().ToOnboardingCluster(cs.LandscapeName)}
-	internalCall, err := computeInternalCallCommandForSwitchToAccess(con, cfg, landscape.Onboarding)
+	internalCall, err := computeInternalCallCommandForSwitchToAccess(cfg, ca)
 	if err != nil {
 		libutils.Fatal(1, "error computing internal call command: %w", err)
 	}
@@ -60,7 +56,7 @@ func switchToOnboardingCluster(con *libcontext.Context, cfg *config.MCPConfig, c
 	}
 }
 
-func computeInternalCallCommandForSwitchToAccess(con *libcontext.Context, cfg *config.MCPConfig, access *config.ClusterAccess) (string, error) {
+func computeInternalCallCommandForSwitchToAccess(cfg *config.MCPConfig, access *config.ClusterAccess) (string, error) {
 	var subcommand string
 	if access.Kubeconfig != nil {
 		if access.Kubeconfig.Path != "" {

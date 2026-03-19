@@ -3,6 +3,7 @@ package target
 import (
 	"github.com/Diaphteiros/kw/pluginlib/pkg/debug"
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"
+
 	"github.com/Diaphteiros/kw_mcp/pkg/config"
 )
 
@@ -19,6 +20,8 @@ var (
 )
 
 func init() {
+	req = libutils.NewRequirements()
+
 	TargetCmd.Flags().StringVarP(&landscapeArg, "landscape", "l", "", "The MCP landscape to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
 	TargetCmd.Flags().Lookup("landscape").NoOptDefVal = PromptForArg
 	TargetCmd.Flags().StringVarP(&projectArg, "project", "p", "", "The MCP project to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
@@ -52,13 +55,6 @@ func validateArgs() {
 	} else if mcpVersionV2 {
 		mcpVersion = config.MCPVersionV2
 	}
-}
-
-func isMCPVersionV1(cfg *config.MCPConfig) bool {
-	if mcpVersion != "" {
-		return mcpVersion == config.MCPVersionV1
-	}
-	return cfg.DefaultMCPVersion == config.MCPVersionV1
 }
 
 func isMCPVersionV2(cfg *config.MCPConfig) bool {

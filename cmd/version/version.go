@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/spf13/cobra"
+
 	staticversion "github.com/Diaphteiros/kw_mcp/pkg/version"
 
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"

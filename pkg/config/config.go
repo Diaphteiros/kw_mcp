@@ -99,7 +99,7 @@ func (c *MCPConfig) String() string {
 	return string(data)
 }
 
-func (c *MCPConfig) Default() error {
+func (c *MCPConfig) Default() {
 	if c.GardenPluginName == "" {
 		c.GardenPluginName = "garden"
 	}
@@ -117,18 +117,16 @@ func (c *MCPConfig) Default() error {
 		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjectsPerLandscape) > 0 {
 			landscape.GardenerProjectsSetPerLandscape = map[string]sets.Set[string]{}
 			if landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil && landscape.Onboarding.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Landscape] = sets.New[string](landscape.Onboarding.Gardener.Project)
+				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Landscape] = sets.New(landscape.Onboarding.Gardener.Project)
 			}
 			if landscape.Platform != nil && landscape.Platform.Gardener != nil && landscape.Platform.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Landscape] = sets.New[string](landscape.Platform.Gardener.Project)
+				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Landscape] = sets.New(landscape.Platform.Gardener.Project)
 			}
 			for gardenerLandscape, projects := range landscape.AdditionalGardenerProjectsPerLandscape {
-				landscape.GardenerProjectsSetPerLandscape[gardenerLandscape] = sets.New[string](projects...)
+				landscape.GardenerProjectsSetPerLandscape[gardenerLandscape] = sets.New(projects...)
 			}
 		}
 	}
-
-	return nil
 }
 
 func (c *MCPConfig) Validate() error {

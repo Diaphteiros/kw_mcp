@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/spf13/cobra/doc"
 	"github.com/Diaphteiros/kw_mcp/cmd"
+	"github.com/spf13/cobra/doc"
 )
 
 func main() {
