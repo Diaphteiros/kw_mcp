@@ -120,10 +120,10 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		debug.Debug("MCP landscape '%s' found for targeted Gardener project '%s' in garden plugin state", mcpln, gs.Project)
 		// check if platform or onboarding cluster was targeted and set state accordingly
 		res.Focus.Landscape = mcpln
-		if mcpl.Platform != nil && mcpl.Platform.Gardener != nil && gs.Garden == mcpl.Platform.Gardener.Landscape && gs.Project == mcpl.Platform.Gardener.Project && gs.Shoot == mcpl.Platform.Gardener.Shoot {
+		if mcpl.Platform != nil && mcpl.Platform.Gardener != nil && gs.Garden == mcpl.Platform.Gardener.Garden && gs.Project == mcpl.Platform.Gardener.Project && gs.Shoot == mcpl.Platform.Gardener.Shoot {
 			debug.Debug("Platform cluster is targeted")
 			res.Focus.Cluster = MCPClusterPlatform
-		} else if mcpl.Onboarding != nil && mcpl.Onboarding.Gardener != nil && gs.Garden == mcpl.Onboarding.Gardener.Landscape && gs.Project == mcpl.Onboarding.Gardener.Project && gs.Shoot == mcpl.Onboarding.Gardener.Shoot {
+		} else if mcpl.Onboarding != nil && mcpl.Onboarding.Gardener != nil && gs.Garden == mcpl.Onboarding.Gardener.Garden && gs.Project == mcpl.Onboarding.Gardener.Project && gs.Shoot == mcpl.Onboarding.Gardener.Shoot {
 			debug.Debug("Onboarding cluster is targeted")
 			res.Focus.Cluster = MCPClusterOnboarding
 		} else {

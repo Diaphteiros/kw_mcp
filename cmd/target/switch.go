@@ -75,7 +75,7 @@ func computeInternalCallCommandForSwitchToAccess(cfg *config.MCPConfig, access *
 			subcommand = fmt.Sprintf("custom %s", tmpFile.Name())
 		}
 	} else if access.Gardener != nil {
-		subcommand = fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, access.Gardener.Landscape, access.Gardener.Project, access.Gardener.Shoot)
+		subcommand = fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, access.Gardener.Garden, access.Gardener.Project, access.Gardener.Shoot)
 	} else if access.Kind != nil {
 		subcommand = fmt.Sprintf("%s %s", cfg.KindPluginName, access.Kind.Name)
 	} else {

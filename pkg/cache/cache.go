@@ -184,7 +184,7 @@ func (c *cache) fetch(focus *state.Focus, con libcontext.Context) (*clusters.Clu
 		} else if ca.Gardener != nil {
 			// this requires a redirect to the gardener plugin
 			debug.Debug("Kubeconfig for focus '%s' must be fetched via gardener plugin", focus.Json())
-			cmdString := fmt.Sprintf("%s target --garden %s --project %s --shoot %s", c.config.GardenPluginName, ca.Gardener.Landscape, ca.Gardener.Project, ca.Gardener.Shoot)
+			cmdString := fmt.Sprintf("%s target --garden %s --project %s --shoot %s", c.config.GardenPluginName, ca.Gardener.Garden, ca.Gardener.Project, ca.Gardener.Shoot)
 			debug.Debug("Delegating to gardener plugin: %s", cmdString)
 			if err := con.WriteInternalCall(cmdString, fmt.Appendf([]byte{}, "%s:%s", focus.Landscape, focus.Cluster)); err != nil {
 				return nil, fmt.Errorf("error writing internal file for gardener plugin call for focus '%s': %w", focus.Json(), err)

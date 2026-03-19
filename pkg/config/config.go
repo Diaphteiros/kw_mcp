@@ -75,8 +75,8 @@ type KubeconfigClusterAccess struct {
 }
 
 type GardenerClusterAccess struct {
-	// Landscape of the shoot cluster.
-	Landscape string `json:"landscape"`
+	// Garden of the shoot cluster.
+	Garden string `json:"garden"`
 	// Project of the shoot cluster.
 	Project string `json:"project"`
 	// Shoot cluster name.
@@ -117,10 +117,10 @@ func (c *MCPConfig) Default() {
 		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjectsPerLandscape) > 0 {
 			landscape.GardenerProjectsSetPerLandscape = map[string]sets.Set[string]{}
 			if landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil && landscape.Onboarding.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Landscape] = sets.New(landscape.Onboarding.Gardener.Project)
+				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Garden] = sets.New(landscape.Onboarding.Gardener.Project)
 			}
 			if landscape.Platform != nil && landscape.Platform.Gardener != nil && landscape.Platform.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Landscape] = sets.New(landscape.Platform.Gardener.Project)
+				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Garden] = sets.New(landscape.Platform.Gardener.Project)
 			}
 			for gardenerLandscape, projects := range landscape.AdditionalGardenerProjectsPerLandscape {
 				landscape.GardenerProjectsSetPerLandscape[gardenerLandscape] = sets.New(projects...)
@@ -169,7 +169,7 @@ func (c *MCPConfig) Validate() error {
 				}
 			} else if cluster.Gardener != nil {
 				curPath := cPath.Child("gardener")
-				if cluster.Gardener.Landscape == "" {
+				if cluster.Gardener.Garden == "" {
 					errs = append(errs, field.Required(curPath.Child("landscape"), "landscape must not be empty"))
 				}
 				if cluster.Gardener.Project == "" {
