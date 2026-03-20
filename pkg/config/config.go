@@ -38,6 +38,8 @@ type MCPConfig struct {
 	Landscapes map[string]*MCPLandscape `json:"landscapes"`
 	// DefaultMCPVersion specifies the default MCP version to use for commands, if not specified via a flag. Defaults to 'v2' if not set.
 	DefaultMCPVersion string `json:"defaultMCPVersion"`
+	// GardenerProjectsSetPerLandscape is computed during config loading and contains the project names from platform and onboarding cluster as well as the additional Gardener projects for easy lookup. It is not serialized to the config file.
+	GardenerProjectsSetPerLandscape map[string]sets.Set[string] `json:"-"`
 }
 
 type MCPLandscape struct {
@@ -45,12 +47,10 @@ type MCPLandscape struct {
 	Onboarding *ClusterAccess `json:"onboarding"`
 	// Platform describes the access to the platform cluster.
 	Platform *ClusterAccess `json:"platform"`
-	// AdditionalGardenerProjectsPerLandscape maps Gardener landscape names to lists of additional Gardener projects that host clusters of this MCP landscape.
+	// AdditionalGardenerProjects maps Gardener landscape names to lists of additional Gardener projects that host clusters of this MCP landscape.
 	// The projects of the onboarding and platform cluster don't have to be listed here.
 	// This is used to determine the landscape when the cluster targeted by the last kubeswitcher call was not chosen via this plugin.
-	AdditionalGardenerProjectsPerLandscape map[string][]string `json:"additionalGardenerProjectsPerLandscape,omitempty"`
-	// GardenerProjectsSetPerLandscape is computed during config loading and contains the project names from platform and onboarding cluster as well as the additional Gardener projects for easy lookup. It is not serialized to the config file.
-	GardenerProjectsSetPerLandscape map[string]sets.Set[string] `json:"-"`
+	AdditionalGardenerProjects []string `json:"additionalGardenerProjects,omitempty"`
 }
 
 type ClusterAccess struct {
@@ -113,17 +113,19 @@ func (c *MCPConfig) Default() {
 		c.DefaultMCPVersion = MCPVersionV2
 	}
 
-	for _, landscape := range c.Landscapes {
-		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjectsPerLandscape) > 0 {
-			landscape.GardenerProjectsSetPerLandscape = map[string]sets.Set[string]{}
+	c.GardenerProjectsSetPerLandscape = map[string]sets.Set[string]{}
+
+	for name, landscape := range c.Landscapes {
+		if (landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil) || (landscape.Platform != nil && landscape.Platform.Gardener != nil) || len(landscape.AdditionalGardenerProjects) > 0 {
+			c.GardenerProjectsSetPerLandscape[name] = sets.New[string]()
 			if landscape.Onboarding != nil && landscape.Onboarding.Gardener != nil && landscape.Onboarding.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Onboarding.Gardener.Garden] = sets.New(landscape.Onboarding.Gardener.Project)
+				c.GardenerProjectsSetPerLandscape[name].Insert(landscape.Onboarding.Gardener.Project)
 			}
 			if landscape.Platform != nil && landscape.Platform.Gardener != nil && landscape.Platform.Gardener.Project != "" {
-				landscape.GardenerProjectsSetPerLandscape[landscape.Platform.Gardener.Garden] = sets.New(landscape.Platform.Gardener.Project)
+				c.GardenerProjectsSetPerLandscape[name].Insert(landscape.Platform.Gardener.Project)
 			}
-			for gardenerLandscape, projects := range landscape.AdditionalGardenerProjectsPerLandscape {
-				landscape.GardenerProjectsSetPerLandscape[gardenerLandscape] = sets.New(projects...)
+			for _, project := range landscape.AdditionalGardenerProjects {
+				c.GardenerProjectsSetPerLandscape[name].Insert(project)
 			}
 		}
 	}

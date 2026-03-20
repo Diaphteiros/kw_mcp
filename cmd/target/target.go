@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
@@ -32,14 +33,17 @@ var (
 )
 
 var TargetCmd = &cobra.Command{
-	Use:               "target TODO",
-	DisableAutoGenTag: true,
-	Args:              cobra.RangeArgs(0, 1),
-	Short:             "Switch to an MCP cluster",
+	Use:                "target TODO",
+	DisableAutoGenTag:  true,
+	DisableFlagParsing: true,
+	Args:               cobra.ArbitraryArgs,
+	Short:              "Switch to an MCP cluster",
 	Long: `Switch to an MCP cluster.
 
 TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// parse flags
+		parseArgs(cmd, args)
 		// validate arguments
 		validateArgs()
 
@@ -59,28 +63,46 @@ TODO`,
 
 		// check if this is a callback from an internal call and set values accordingly
 		cs = &callState{}
-		if data, err := os.ReadFile(con.InternalCallbackPath); err == nil {
+		if data, err := con.ReadInternalCallbackState(); err != nil {
+			libutils.Fatal(1, "error reading internal callback data: %w", err)
+		} else if data != nil {
 			debug.Debug("Internal callback data found")
-			cbi := &callState{}
-			if err := json.Unmarshal(data, cbi); err != nil {
+			if err := json.Unmarshal(data, cs); err != nil {
 				libutils.Fatal(1, "error unmarshalling internal callback data: %w", err)
 			}
-		} else if err != nil {
-			if os.IsNotExist(err) {
-				debug.Debug("No internal callback data found, loading original state, if possible")
-				cs.OriginalState = &state.MCPState{}
-				loaded, err := cs.OriginalState.Load(con, cfg)
-				if err != nil {
-					libutils.Fatal(1, "error loading plugin state: %w", err)
-				}
-				if loaded {
-					debug.Debug("Loaded original state: %s", cs.OriginalState.Focus.String())
-					cs.IntermediateState = cs.OriginalState.DeepCopy()
-				}
+			// print the call state for debugging purposes
+			pData, err := yaml.Marshal(cs)
+			if err != nil {
+				debug.Debug("Error marshaling internal callback data to yaml: %v", err)
 			} else {
-				libutils.Fatal(1, "error reading internal callback data: %w", err)
+				debug.Debug("Internal callback data:\n%s", string(pData))
+			}
+		} else {
+			debug.Debug("No internal callback data found, loading original state, if possible")
+			cs.OriginalState = &state.MCPState{}
+			loaded, err := cs.OriginalState.Load(con, cfg)
+			if err != nil {
+				libutils.Fatal(1, "error loading plugin state: %w", err)
+			}
+			if loaded {
+				debug.Debug("Loaded original state")
+				cs.IntermediateState = cs.OriginalState.DeepCopy()
+				debug.Debug("Storing kubeconfig of original state, just in case")
+				kcfgData, err := os.ReadFile(con.KubeconfigPath)
+				if err != nil {
+					libutils.Fatal(1, "error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
+				}
+				cs.OriginalStateKubeconfig = kcfgData
+			} else {
+				cs.OriginalState = nil
 			}
 		}
+
+		mcpVersionLog := mcpVersion
+		if mcpVersionLog == "" {
+			mcpVersionLog = fmt.Sprintf("%s (defaulted from config)", cfg.DefaultMCPVersion)
+		}
+		debug.Debug("Command called with the following arguments:\n  --landscape: %s\n  --project: %s\n  --workspace: %s\n  --mcp: %s\n  --onboarding: %v\n  --platform: %v\n  MCP version: %s", landscapeArg, projectArg, workspaceArg, mcpArg, onboardingArg, platformArg, mcpVersionLog)
 
 		// setup requirements
 		// has to happen here due to required context
@@ -112,11 +134,11 @@ TODO`,
 					if internalCall {
 						return
 					}
-					if workspaceArg != "" {
+					if workspaceArg == "" {
 						// no workspace targeted, so the final target namespace is the project namespace
 						targetNamespace = cs.ProjectNamespace
 						adaptState = func(s *state.MCPState) {
-							s.Focus = *s.Focus.ToProject(cs.ProjectName)
+							s.Focus.ToProject(cs.ProjectName)
 						}
 					}
 				}
@@ -130,12 +152,18 @@ TODO`,
 					// the final target namespace is the workspace namespace
 					targetNamespace = cs.WorkspaceNamespace
 					adaptState = func(s *state.MCPState) {
-						s.Focus = *s.Focus.ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName)
+						s.Focus.ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName)
 					}
 				}
 				// ensure that the kubeconfig is pointing to the onboarding cluster
 				if cs.IntermediateState == nil || cs.IntermediateState.Focus.Landscape != cs.LandscapeName || !cs.IntermediateState.Focus.IsOnboardingCluster() {
-					debug.Debug("Not targeting the onboarding cluster at the moment, issuing internal call to switch to it")
+					debug.Debug("cs.IntermediateState == nil: %v", cs.IntermediateState == nil)
+					if cs.IntermediateState != nil {
+						debug.Debug("cs.IntermediateState.Focus.Landscape (%s) != cs.LandscapeName (%s): %v", cs.IntermediateState.Focus.Landscape, cs.LandscapeName, cs.IntermediateState.Focus.Landscape != cs.LandscapeName)
+						debug.Debug("cs.IntermediateState.Focus.IsOnboardingCluster(): %v", cs.IntermediateState.Focus.IsOnboardingCluster())
+						debug.Debug("Focus type: %s (expected to be %s)", cs.IntermediateState.Focus.Focus(), state.FocusTypeLandscape)
+						debug.Debug("Not targeting the onboarding cluster at the moment, issuing internal call to switch to it")
+					}
 					switchToOnboardingCluster(con, cfg, cs)
 					return
 				}
@@ -185,7 +213,7 @@ TODO`,
 					// build final state
 					cs.Final = true
 					cs.IntermediateState = &state.MCPState{
-						Focus: *state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
+						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
 					}
 					csData, err := json.Marshal(cs)
 					if err != nil {
@@ -197,7 +225,7 @@ TODO`,
 						if err != nil {
 							libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w", c.Namespace, c.Name, err)
 						}
-						shootProject := strings.TrimPrefix("garden-", shootNamespace) // this is a convention used by Gardener, the project name is the shoot namespace without the "garden-" prefix
+						shootProject := strings.TrimPrefix(shootNamespace, "garden-") // this is a convention used by Gardener, the project name is the shoot namespace without the "garden-" prefix
 						// identify the Gardener landscape of the shoot
 						// The correct way to do this would be to go from Cluster -> ClusterProfile -> ProviderConfig -> Landscape, but to avoid some complexity, we are just going to assume that the
 						// platform cluster is using the same Gardener landscape as the MCP clusters.
@@ -230,10 +258,10 @@ TODO`,
 		// Reaching this point means:
 		// - cs.IntermediateState holds the desired state
 		// - the kubeconfig points to the desired cluster
-		if err := con.WriteId(cs.IntermediateState.Focus.ID(con.CurrentPluginName)); err != nil {
+		if err := con.WriteId(cs.IntermediateState.Id(con.CurrentPluginName)); err != nil {
 			libutils.Fatal(1, "error writing state ID: %w", err)
 		}
-		if err := con.WriteNotificationMessage(cs.IntermediateState.Focus.Notification()); err != nil {
+		if err := con.WriteNotificationMessage(cs.IntermediateState.Notification()); err != nil {
 			libutils.Fatal(1, "error writing notification message: %w", err)
 		}
 		if err := con.WritePluginState(cs.IntermediateState); err != nil {
@@ -257,6 +285,7 @@ type callState struct {
 	Final                       bool            `json:"final"`                                 // indicates that the target state has been reached only the provider state needs to be adapted
 	PlatformClusterKubeconfig   []byte          `json:"platformClusterKubeconfig,omitempty"`   // holds the kubeconfig of the platform cluster, if it has already been fetched
 	OnboardingClusterKubeconfig []byte          `json:"onboardingClusterKubeconfig,omitempty"` // holds the kubeconfig of the onboarding cluster, if it has already been fetched
+	OriginalStateKubeconfig     []byte          `json:"originalStateKubeconfig,omitempty"`     // holds the kubeconfig of the original state, if it belonged to an MCP landscape
 }
 
 // setDefaultNamespaceInKubeconfig reads the current kubeconfig, and returns a marshalled version of it with the default namespace set to the provided namespace.
@@ -271,8 +300,12 @@ func setDefaultNamespaceInKubeconfig(con *libcontext.Context, namespace string) 
 	if !ok {
 		libutils.Fatal(1, "invalid kubeconfig: current context '%s' not found\n", kcfg.CurrentContext)
 	}
+	if curCtx.Namespace == namespace {
+		debug.Debug("Default namespace in kubeconfig is already set to '%s', no need to update it", namespace)
+		return nil
+	}
 	curCtx.Namespace = namespace
-	kcfgData, err := yaml.Marshal(kcfg)
+	kcfgData, err := clientcmd.Write(*kcfg)
 	if err != nil {
 		libutils.Fatal(1, "error marshalling kubeconfig: %w\n", err)
 	}

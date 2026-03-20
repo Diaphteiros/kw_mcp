@@ -18,11 +18,11 @@ import (
 )
 
 type MCPState struct {
-	Focus Focus `json:"focus"`
+	Focus *Focus `json:"focus"`
 }
 
 func (s *MCPState) copyFrom(other *MCPState) {
-	s.Focus = *other.Focus.DeepCopy()
+	s.Focus = other.Focus.DeepCopy()
 }
 
 func (s *MCPState) DeepCopy() *MCPState {
@@ -30,7 +30,7 @@ func (s *MCPState) DeepCopy() *MCPState {
 		return nil
 	}
 	res := &MCPState{
-		Focus: *s.Focus.DeepCopy(),
+		Focus: s.Focus.DeepCopy(),
 	}
 	return res
 }
@@ -45,7 +45,7 @@ func (s *MCPState) YAML() ([]byte, error) {
 }
 
 func (s *MCPState) Id(pluginName string) string {
-	return s.Focus.ID(pluginName)
+	return s.Focus.Id(pluginName)
 }
 
 func (s *MCPState) Notification() string {
@@ -66,7 +66,7 @@ func (s *MCPState) Load(con *libcontext.Context, cfg *config.MCPConfig) (bool, e
 	}
 	if loaded != nil {
 		s.copyFrom(loaded)
-		debug.Debug("Successfully loaded MCP state (focus: %v)", loaded.Focus)
+		debug.Debug("Successfully loaded MCP state: %v", loaded)
 		return true, nil
 	}
 	debug.Debug("No MCP state could be loaded")
@@ -79,13 +79,14 @@ func (s *MCPState) Load(con *libcontext.Context, cfg *config.MCPConfig) (bool, e
 // If the state was handled by the kind plugin, it is inferred from the kind state based on the targeted kind cluster and the mapping of kind clusters to MCP landscapes specified in the config.
 // If the state was handled by the builtin custom command, it is inferred from the kubeconfig path and content of the currently selected cluster and the kubeconfig paths and contents specified in the config for the platform and onboarding cluster of each landscape.
 // If the state was handled by any other plugin or if inferring the state from the garden or kind plugin state fails, nil is returned.
+// This should return an error only its own state cannot be loaded, not if something goes wrong while trying to infer the state from other plugins' states, since the latter is just an optimization and not critical for correctness.
 func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfig, rawState *libstate.State) (*MCPState, error) {
 	if rawState == nil || rawState.LastUsed == nil {
 		debug.Debug("Unable to determine plugin which handled the last command")
 		return nil, nil
 	}
 	res := &MCPState{
-		Focus: Focus{},
+		Focus: NewEmptyFocus(),
 	}
 	switch rawState.LastUsed.Plugin {
 	case con.CurrentPluginName:
@@ -94,19 +95,26 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		if err != nil {
 			return nil, fmt.Errorf("error unmarshaling plugin state: %w", err)
 		}
+		pData, err := yaml.Marshal(res)
+		if err != nil {
+			debug.Debug("Error marshaling loaded state to yaml: %v", err)
+		} else {
+			debug.Debug("Loaded state from mcp plugin:\n%s", string(pData))
+		}
 	case cfg.GardenPluginName:
 		debug.Debug("Last cluster was selected via %s plugin, trying to infer MCP state from garden state", cfg.GardenPluginName)
 		// This is ugly, since we depend on the internal structure of another plugin, but there is not really a better option.
 		gs := &gardenstate.GardenctlState{}
 		err := yaml.Unmarshal(rawState.RawPluginState, gs)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshaling garden plugin state: %w", err)
+			debug.Debug("Error unmarshaling garden plugin state: %v", err)
+			return nil, nil
 		}
 		// try to match the Gardener state to one of the MCP landscapes in the config
 		var mcpln string
 		var mcpl *config.MCPLandscape
 		for name, landscape := range cfg.Landscapes {
-			if landscape.GardenerProjectsSetPerLandscape != nil && landscape.GardenerProjectsSetPerLandscape[gs.Garden] != nil && landscape.GardenerProjectsSetPerLandscape[gs.Garden].Has(gs.Project) {
+			if cfg.GardenerProjectsSetPerLandscape != nil && cfg.GardenerProjectsSetPerLandscape[name] != nil && cfg.GardenerProjectsSetPerLandscape[name].Has(gs.Project) {
 				mcpl = landscape
 				mcpln = name
 				break
@@ -135,7 +143,8 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		ks := &kindstate.KindState{}
 		err := yaml.Unmarshal(rawState.RawPluginState, ks)
 		if err != nil {
-			return nil, fmt.Errorf("error unmarshaling kind plugin state: %w", err)
+			debug.Debug("Error unmarshaling kind plugin state: %v", err)
+			return nil, nil
 		}
 		// try to match kind cluster to an MCP landscape specified in the config
 		potentialCandidates := map[string]*config.MCPLandscape{}
@@ -178,7 +187,8 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		debug.Debug("Last cluster was selected via builtin 'custom' subcommand, trying to match kubeconfig path and content against landscape configs")
 		kcfgPath, err := filepath.EvalSymlinks(con.KubeconfigPath)
 		if err != nil {
-			return nil, fmt.Errorf("error resolving kubeconfig path '%s': %w", con.KubeconfigPath, err)
+			debug.Debug("error resolving kubeconfig path '%s': %v", con.KubeconfigPath, err)
+			return nil, nil
 		}
 		debug.Debug("Resolved kubeconfig path: '%s'", kcfgPath)
 		var apiServer string
@@ -238,7 +248,7 @@ func DetermineMCPStateFromRawState(con *libcontext.Context, cfg *config.MCPConfi
 		debug.Debug("Unknown plugin '%s' handled the last command, unable to determine state from it", rawState.LastUsed.Plugin)
 		return nil, nil
 	}
-	return nil, nil
+	return res, nil
 }
 
 func apiServerMatchesClusterAccess(landscapeName, logId, apiServer string, ca *config.ClusterAccess) bool {

@@ -3,8 +3,8 @@ module github.com/Diaphteiros/kw_mcp
 go 1.26.1
 
 require (
-	github.com/Diaphteiros/kw v1.0.1
-	github.com/Diaphteiros/kw/pluginlib v1.0.1
+	github.com/Diaphteiros/kw v1.0.2-0.20260320143720-aa4fa095d11d
+	github.com/Diaphteiros/kw/pluginlib v1.0.2-0.20260320162742-3ad6ffe13b22
 	github.com/Diaphteiros/kw_garden v1.0.0
 	github.com/Diaphteiros/kw_kind v1.0.0
 	github.com/mandelsoft/vfs v0.4.4

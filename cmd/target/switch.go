@@ -42,7 +42,12 @@ func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MC
 		libutils.Fatal(1, "landscape '%s' does not have an %s cluster configured", cs.LandscapeName, logId)
 	}
 
-	cs.IntermediateState = &state.MCPState{Focus: *state.NewEmptyFocus().ToOnboardingCluster(cs.LandscapeName)}
+	cs.IntermediateState = &state.MCPState{Focus: state.NewEmptyFocus()}
+	if targetOnboarding {
+		cs.IntermediateState.Focus.ToOnboardingCluster(cs.LandscapeName)
+	} else {
+		cs.IntermediateState.Focus.ToPlatformCluster(cs.LandscapeName)
+	}
 	internalCall, err := computeInternalCallCommandForSwitchToAccess(cfg, ca)
 	if err != nil {
 		libutils.Fatal(1, "error computing internal call command: %w", err)

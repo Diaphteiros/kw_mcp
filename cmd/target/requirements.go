@@ -2,6 +2,7 @@ package target
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -50,20 +51,28 @@ const (
 // If satisfied, cs.ProjectName can be expected to be a non-empty string.
 func satisfyLandscapeRequirement(cfg *config.MCPConfig) func() error {
 	return func() error {
-		if cs.LandscapeName == "" && landscapeArg == PromptForArg {
-			debug.Debug("Prompting for landscape name.")
-			landscapeList := sets.KeySet(cfg.Landscapes).UnsortedList()
-			slices.SortFunc(landscapeList, func(a, b string) int {
-				return -strings.Compare(a, b)
-			})
-			// select MCP landscape
-			_, cs.LandscapeName, _ = selector.New[string]().
-				WithPrompt("Select MCP landscape: ").
-				WithFatalOnAbort("No landscape selected.").
-				WithFatalOnError("error selecting landscape: %w").
-				From(landscapeList, func(elem string) string { return elem }).
-				Select()
-			debug.Debug("Selected Landscape: %s", cs.LandscapeName)
+		debug.Debug("Satisfying requirement '%s'", reqLandscape)
+		if abort, err := handlePrerequisites(reqLandscape); abort {
+			return err
+		}
+		if cs.LandscapeName == "" {
+			if landscapeArg == PromptForArg {
+				debug.Debug("Prompting for landscape name.")
+				landscapeList := sets.KeySet(cfg.Landscapes).UnsortedList()
+				slices.SortFunc(landscapeList, func(a, b string) int {
+					return -strings.Compare(a, b)
+				})
+				// select MCP landscape
+				_, cs.LandscapeName, _ = selector.New[string]().
+					WithPrompt("Select MCP landscape: ").
+					WithFatalOnAbort("No landscape selected.").
+					WithFatalOnError("error selecting landscape: %w").
+					From(landscapeList, func(elem string) string { return elem }).
+					Select()
+				debug.Debug("Selected Landscape: %s", cs.LandscapeName)
+			} else {
+				cs.LandscapeName = landscapeArg
+			}
 		}
 		if cs.LandscapeName == "" {
 			debug.Debug("No landscape specified via arguments, trying to retrieve it from state.")
@@ -84,28 +93,44 @@ func satisfyLandscapeRequirement(cfg *config.MCPConfig) func() error {
 // If satisfied, the onboardingCluster variable can be expected to be ready for use.
 func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig) func() error {
 	return func() error {
-		if err := req.Require(reqLandscape); err != nil {
-			return fmt.Errorf("internal error: %w", err)
+		debug.Debug("Satisfying requirement '%s'", reqOnboardingCluster)
+		if abort, err := handlePrerequisites(reqOnboardingCluster, reqLandscape); abort {
+			return err
 		}
 		// check if onboarding kubeconfig is already contained in call state
 		onboardingCluster = clusters.New(state.MCPClusterOnboarding)
 		if len(cs.OnboardingClusterKubeconfig) > 0 {
 			debug.Debug("Using onboarding cluster kubeconfig from call state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig(cs.OnboardingClusterKubeconfig)
+			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.OnboardingClusterKubeconfig))
 			if err != nil {
 				return fmt.Errorf("error creating REST config from kubeconfig in call state: %w", err)
 			}
 			onboardingCluster.WithRESTConfig(restCfg)
 		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsOnboardingCluster() {
 			// currently used kubeconfig is pointing to the onboarding cluster, we can use it
+			debug.Debug("Using onboarding cluster from current kubeswitcher state")
 			if err := onboardingCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
 				return fmt.Errorf("error initializing REST config for onboarding cluster from current kubeconfig: %w", err)
 			}
+			// unfortunately, we cannot use onboardingCluster.WriteKubeconfig(), as that does not support all authentication types
+			kcfgData, err := os.ReadFile(con.KubeconfigPath)
+			if err != nil {
+				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
+			}
+			cs.OnboardingClusterKubeconfig = kcfgData
+		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsOnboardingCluster() {
+			// original state is pointing to the onboarding cluster, we can use it
+			debug.Debug("Using onboarding cluster from original state")
+			if err := onboardingCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
+				return fmt.Errorf("error initializing REST config for onboarding cluster from original state kubeconfig: %w", err)
+			}
+			cs.OnboardingClusterKubeconfig = cs.OriginalStateKubeconfig
 		} else {
 			// we need to switch to the onboarding cluster to get the kubeconfig for it
 			debug.Debug("Switching to onboarding cluster")
 			switchToOnboardingCluster(con, cfg, cs)
 			internalCall = true
+			debug.Debug("Aborting onboarding cluster requirement satisfaction to wait for internal call")
 			return nil
 		}
 		onboardingScheme := runtime.NewScheme()
@@ -115,11 +140,6 @@ func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MC
 		if err := onboardingCluster.InitializeClient(onboardingScheme); err != nil {
 			return fmt.Errorf("error initializing client for onboarding cluster: %w", err)
 		}
-		var err error
-		cs.OnboardingClusterKubeconfig, err = onboardingCluster.WriteKubeconfig()
-		if err != nil {
-			return fmt.Errorf("error writing kubeconfig for onboarding cluster: %w", err)
-		}
 		return nil
 	}
 }
@@ -128,28 +148,44 @@ func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MC
 // If satisfied, the platformCluster variable can be expected to be ready for use.
 func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig) func() error {
 	return func() error {
-		if err := req.Require(reqLandscape); err != nil {
-			return fmt.Errorf("internal error: %w", err)
+		debug.Debug("Satisfying requirement '%s'", reqPlatformCluster)
+		if abort, err := handlePrerequisites(reqPlatformCluster, reqLandscape); abort {
+			return err
 		}
 		// check if platform kubeconfig is already contained in call state
 		platformCluster = clusters.New(state.MCPClusterPlatform)
 		if len(cs.PlatformClusterKubeconfig) > 0 {
 			debug.Debug("Using platform cluster kubeconfig from call state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig(cs.PlatformClusterKubeconfig)
+			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.PlatformClusterKubeconfig))
 			if err != nil {
 				return fmt.Errorf("error creating REST config from kubeconfig in call state: %w", err)
 			}
 			platformCluster.WithRESTConfig(restCfg)
 		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsPlatformCluster() {
 			// currently used kubeconfig is pointing to the platform cluster, we can use it
+			debug.Debug("Using platform cluster from current kubeswitcher state")
 			if err := platformCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
 				return fmt.Errorf("error initializing REST config for platform cluster from current kubeconfig: %w", err)
 			}
+			// unfortunately, we cannot use platformCluster.WriteKubeconfig(), as that does not support all authentication types
+			kcfgData, err := os.ReadFile(con.KubeconfigPath)
+			if err != nil {
+				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
+			}
+			cs.PlatformClusterKubeconfig = kcfgData
+		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsPlatformCluster() {
+			// original state is pointing to the platform cluster, we can use it
+			debug.Debug("Using platform cluster from original state")
+			if err := platformCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
+				return fmt.Errorf("error initializing REST config for platform cluster from original state kubeconfig: %w", err)
+			}
+			cs.PlatformClusterKubeconfig = cs.OriginalStateKubeconfig
 		} else {
 			// we need to switch to the platform cluster to get the kubeconfig for it
 			debug.Debug("Switching to platform cluster")
 			switchToPlatformCluster(con, cfg, cs)
 			internalCall = true
+			debug.Debug("Aborting platform cluster requirement satisfaction to wait for internal call")
 			return nil
 		}
 		platformScheme := runtime.NewScheme()
@@ -157,11 +193,6 @@ func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPC
 		mcpv2install.InstallOperatorAPIsPlatform(platformScheme)
 		if err := platformCluster.InitializeClient(platformScheme); err != nil {
 			return fmt.Errorf("error initializing client for platform cluster: %w", err)
-		}
-		var err error
-		cs.PlatformClusterKubeconfig, err = platformCluster.WriteKubeconfig()
-		if err != nil {
-			return fmt.Errorf("error writing kubeconfig for platform cluster: %w", err)
 		}
 		return nil
 	}
@@ -171,33 +202,35 @@ func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPC
 // If satisfied, cs.ProjectName can be expected to be a non-empty string.
 func satisfyProjectRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if cs.ProjectName == "" && projectArg == PromptForArg {
-			// we need to switch to the onboarding cluster to get the list of projects
-			if err := req.Require(reqOnboardingCluster); err != nil {
-				return fmt.Errorf("internal error: %w", err)
+		debug.Debug("Satisfying requirement '%s'", reqProject)
+		if cs.ProjectName == "" {
+			if projectArg == PromptForArg {
+				// we need to switch to the onboarding cluster to get the list of projects
+				if abort, err := handlePrerequisites(reqProject, reqOnboardingCluster); abort {
+					return err
+				}
+				debug.Debug("Listing projects")
+				projectList := &pwv1alpha1.ProjectList{}
+				if err := onboardingCluster.Client().List(cmd.Context(), projectList); err != nil {
+					return fmt.Errorf("unable to list projects on onboarding cluster: %w", err)
+				}
+				slices.SortFunc(projectList.Items, func(a, b pwv1alpha1.Project) int {
+					return -strings.Compare(a.Name, b.Name)
+				})
+				debug.Debug("Prompting for project name.")
+				// select MCP project
+				_, project, _ := selector.New[pwv1alpha1.Project]().
+					WithPrompt("Select MCP project: ").
+					WithFatalOnAbort("No project selected.").
+					WithFatalOnError("error selecting project: %w").
+					WithPreview(projectSelectorPreview).
+					From(projectList.Items, func(elem pwv1alpha1.Project) string { return elem.Name }).
+					Select()
+				cs.ProjectName = project.Name
+				debug.Debug("Selected Project: %s", cs.ProjectName)
+			} else {
+				cs.ProjectName = projectArg
 			}
-			if internalCall {
-				return nil
-			}
-			debug.Debug("Listing projects")
-			projectList := &pwv1alpha1.ProjectList{}
-			if err := onboardingCluster.Client().List(cmd.Context(), projectList); err != nil {
-				return fmt.Errorf("unable to list projects on onboarding cluster: %w", err)
-			}
-			slices.SortFunc(projectList.Items, func(a, b pwv1alpha1.Project) int {
-				return -strings.Compare(a.Name, b.Name)
-			})
-			debug.Debug("Prompting for project name.")
-			// select MCP project
-			_, project, _ := selector.New[pwv1alpha1.Project]().
-				WithPrompt("Select MCP project: ").
-				WithFatalOnAbort("No project selected.").
-				WithFatalOnError("error selecting project: %w").
-				WithPreview(projectSelectorPreview).
-				From(projectList.Items, func(elem pwv1alpha1.Project) string { return elem.Name }).
-				Select()
-			cs.ProjectName = project.Name
-			debug.Debug("Selected Project: %s", cs.ProjectName)
 		}
 		if cs.ProjectName == "" && landscapeArg == "" { // only derive project from state if the landscape was not explicitly specified
 			debug.Debug("No project specified via arguments, trying to retrieve it from state.")
@@ -218,11 +251,9 @@ func satisfyProjectRequirement(cmd *cobra.Command) func() error {
 // If satisfied, cs.ProjectNamespace can be expected to be a non-empty string containing the namespace that belongs to the project (which is the namespace of the Workspace resources).
 func satisfyProjectNamespaceRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if err := req.Require(reqOnboardingCluster, reqProject); err != nil {
-			return fmt.Errorf("internal error: %w", err)
-		}
-		if internalCall {
-			return nil
+		debug.Debug("Satisfying requirement '%s'", reqProjectNamespace)
+		if abort, err := handlePrerequisites(reqProjectNamespace, reqOnboardingCluster, reqProject); abort {
+			return err
 		}
 		// fetch project to determine namespace
 		debug.Debug("Fetching project '%s' to determine project namespace", cs.ProjectName)
@@ -243,33 +274,35 @@ func satisfyProjectNamespaceRequirement(cmd *cobra.Command) func() error {
 // If satisfied, cs.WorkspaceName can be expected to be a non-empty string.
 func satisfyWorkspaceRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if cs.WorkspaceName == "" && workspaceArg == PromptForArg {
-			// we need to switch to the onboarding cluster to get the list of workspaces
-			if err := req.Require(reqOnboardingCluster, reqProject, reqProjectNamespace); err != nil {
-				return fmt.Errorf("internal error: %w", err)
+		debug.Debug("Satisfying requirement '%s'", reqWorkspace)
+		if cs.WorkspaceName == "" {
+			if workspaceArg == PromptForArg {
+				// we need to switch to the onboarding cluster to get the list of workspaces
+				if abort, err := handlePrerequisites(reqWorkspace, reqOnboardingCluster, reqProject, reqProjectNamespace); abort {
+					return err
+				}
+				debug.Debug("Listing workspaces in namespace '%s'", cs.ProjectNamespace)
+				workspaceList := &pwv1alpha1.WorkspaceList{}
+				if err := onboardingCluster.Client().List(cmd.Context(), workspaceList, client.InNamespace(cs.ProjectNamespace)); err != nil {
+					return fmt.Errorf("unable to list workspaces in namespace '%s' on onboarding cluster: %w", cs.ProjectNamespace, err)
+				}
+				slices.SortFunc(workspaceList.Items, func(a, b pwv1alpha1.Workspace) int {
+					return -strings.Compare(a.Name, b.Name)
+				})
+				debug.Debug("Prompting for workspace name.")
+				// select MCP workspace
+				_, workspace, _ := selector.New[pwv1alpha1.Workspace]().
+					WithPrompt("Select MCP workspace: ").
+					WithFatalOnAbort("No workspace selected.").
+					WithFatalOnError("error selecting workspace: %w").
+					WithPreview(workspaceSelectorPreview).
+					From(workspaceList.Items, func(elem pwv1alpha1.Workspace) string { return elem.Name }).
+					Select()
+				cs.WorkspaceName = workspace.Name
+				debug.Debug("Selected Workspace: %s", cs.WorkspaceName)
+			} else {
+				cs.WorkspaceName = workspaceArg
 			}
-			if internalCall {
-				return nil
-			}
-			debug.Debug("Listing workspaces in namespace '%s'", cs.ProjectNamespace)
-			workspaceList := &pwv1alpha1.WorkspaceList{}
-			if err := onboardingCluster.Client().List(cmd.Context(), workspaceList, client.InNamespace(cs.ProjectNamespace)); err != nil {
-				return fmt.Errorf("unable to list workspaces in namespace '%s' on onboarding cluster: %w", cs.ProjectNamespace, err)
-			}
-			slices.SortFunc(workspaceList.Items, func(a, b pwv1alpha1.Workspace) int {
-				return -strings.Compare(a.Name, b.Name)
-			})
-			debug.Debug("Prompting for workspace name.")
-			// select MCP workspace
-			_, workspace, _ := selector.New[pwv1alpha1.Workspace]().
-				WithPrompt("Select MCP workspace: ").
-				WithFatalOnAbort("No workspace selected.").
-				WithFatalOnError("error selecting workspace: %w").
-				WithPreview(workspaceSelectorPreview).
-				From(workspaceList.Items, func(elem pwv1alpha1.Workspace) string { return elem.Name }).
-				Select()
-			cs.WorkspaceName = workspace.Name
-			debug.Debug("Selected Workspace: %s", cs.WorkspaceName)
 		}
 		if cs.WorkspaceName == "" && landscapeArg == "" && projectArg == "" { // only derive workspace from state if neither landscape nor project were explicitly specified
 			debug.Debug("No workspace specified via arguments, trying to retrieve it from state.")
@@ -290,16 +323,15 @@ func satisfyWorkspaceRequirement(cmd *cobra.Command) func() error {
 // If satisfied, cs.WorkspaceNamespace can be expected to be a non-empty string containing the namespace that belongs to the workspace (which is the namespace of the MCP resources).
 func satisfyWorkspaceNamespaceRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if err := req.Require(reqOnboardingCluster, reqWorkspace); err != nil {
-			return fmt.Errorf("internal error: %w", err)
-		}
-		if internalCall {
-			return nil
+		debug.Debug("Satisfying requirement '%s'", reqWorkspaceNamespace)
+		if abort, err := handlePrerequisites(reqWorkspaceNamespace, reqOnboardingCluster, reqWorkspace, reqProjectNamespace); abort {
+			return err
 		}
 		// fetch workspace to determine namespace
 		debug.Debug("Fetching workspace '%s' to determine workspace namespace", cs.WorkspaceName)
 		workspace := &pwv1alpha1.Workspace{}
 		workspace.Name = cs.WorkspaceName
+		workspace.Namespace = cs.ProjectNamespace
 		if err := onboardingCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(workspace), workspace); err != nil {
 			return fmt.Errorf("unable to get workspace '%s' on onboarding cluster: %w", workspace.Name, err)
 		}
@@ -315,56 +347,58 @@ func satisfyWorkspaceNamespaceRequirement(cmd *cobra.Command) func() error {
 // If satisfied, cs.MCPName can be expected to be a non-empty string.
 func satisfyMCPRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if cs.MCPName == "" && mcpArg == PromptForArg {
-			// we need to switch to the onboarding cluster to get the list of mcps
-			if err := req.Require(reqOnboardingCluster, reqWorkspaceNamespace); err != nil {
-				return fmt.Errorf("internal error: %w", err)
-			}
-			if internalCall {
-				return nil
-			}
-			debug.Debug("Listing MCPs in namespace '%s'", cs.WorkspaceNamespace)
-			switch mcpVersion {
-			case config.MCPVersionV1:
-				mcpList := &mcpv1.ManagedControlPlaneList{}
-				if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
-					return fmt.Errorf("unable to list v1 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
+		debug.Debug("Satisfying requirement '%s'", reqMCP)
+		if cs.MCPName == "" {
+			if mcpArg == PromptForArg {
+				// we need to switch to the onboarding cluster to get the list of mcps
+				if abort, err := handlePrerequisites(reqMCP, reqOnboardingCluster, reqWorkspaceNamespace); abort {
+					return err
 				}
-				slices.SortFunc(mcpList.Items, func(a, b mcpv1.ManagedControlPlane) int {
-					return -strings.Compare(a.Name, b.Name)
-				})
-				debug.Debug("Prompting for MCP name.")
-				// select MCP mcp
-				_, mcp, _ := selector.New[mcpv1.ManagedControlPlane]().
-					WithPrompt("Select MCP: ").
-					WithFatalOnAbort("No MCP selected.").
-					WithFatalOnError("error selecting MCP: %w").
-					WithPreview(mcpv1SelectorPreview).
-					From(mcpList.Items, func(elem mcpv1.ManagedControlPlane) string { return elem.Name }).
-					Select()
-				cs.MCPName = mcp.Name
-			case config.MCPVersionV2:
-				mcpList := &mcpv2.ManagedControlPlaneV2List{}
-				if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
-					return fmt.Errorf("unable to list v2 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
+				debug.Debug("Listing MCPs in namespace '%s'", cs.WorkspaceNamespace)
+				switch mcpVersion {
+				case config.MCPVersionV1:
+					mcpList := &mcpv1.ManagedControlPlaneList{}
+					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
+						return fmt.Errorf("unable to list v1 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
+					}
+					slices.SortFunc(mcpList.Items, func(a, b mcpv1.ManagedControlPlane) int {
+						return -strings.Compare(a.Name, b.Name)
+					})
+					debug.Debug("Prompting for MCP name.")
+					// select MCP mcp
+					_, mcp, _ := selector.New[mcpv1.ManagedControlPlane]().
+						WithPrompt("Select MCP: ").
+						WithFatalOnAbort("No MCP selected.").
+						WithFatalOnError("error selecting MCP: %w").
+						WithPreview(mcpv1SelectorPreview).
+						From(mcpList.Items, func(elem mcpv1.ManagedControlPlane) string { return elem.Name }).
+						Select()
+					cs.MCPName = mcp.Name
+				case config.MCPVersionV2:
+					mcpList := &mcpv2.ManagedControlPlaneV2List{}
+					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
+						return fmt.Errorf("unable to list v2 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
+					}
+					slices.SortFunc(mcpList.Items, func(a, b mcpv2.ManagedControlPlaneV2) int {
+						return -strings.Compare(a.Name, b.Name)
+					})
+					debug.Debug("Prompting for MCP name.")
+					// select MCP mcp
+					_, mcp, _ := selector.New[mcpv2.ManagedControlPlaneV2]().
+						WithPrompt("Select MCP: ").
+						WithFatalOnAbort("No MCP selected.").
+						WithFatalOnError("error selecting MCP: %w").
+						WithPreview(mcpv2SelectorPreview).
+						From(mcpList.Items, func(elem mcpv2.ManagedControlPlaneV2) string { return elem.Name }).
+						Select()
+					cs.MCPName = mcp.Name
+				default:
+					return fmt.Errorf("invalid MCP version '%s'", mcpVersion)
 				}
-				slices.SortFunc(mcpList.Items, func(a, b mcpv2.ManagedControlPlaneV2) int {
-					return -strings.Compare(a.Name, b.Name)
-				})
-				debug.Debug("Prompting for MCP name.")
-				// select MCP mcp
-				_, mcp, _ := selector.New[mcpv2.ManagedControlPlaneV2]().
-					WithPrompt("Select MCP: ").
-					WithFatalOnAbort("No MCP selected.").
-					WithFatalOnError("error selecting MCP: %w").
-					WithPreview(mcpv2SelectorPreview).
-					From(mcpList.Items, func(elem mcpv2.ManagedControlPlaneV2) string { return elem.Name }).
-					Select()
-				cs.MCPName = mcp.Name
-			default:
-				return fmt.Errorf("invalid MCP version '%s'", mcpVersion)
+				debug.Debug("Selected MCP: %s", cs.MCPName)
+			} else {
+				cs.MCPName = mcpArg
 			}
-			debug.Debug("Selected MCP: %s", cs.MCPName)
 		}
 		if cs.MCPName == "" && landscapeArg == "" && projectArg == "" && workspaceArg == "" { // only derive mcp from state if none of landscape, project, and workspace were explicitly specified
 			debug.Debug("No MCP specified via arguments, trying to retrieve it from state.")
@@ -386,11 +420,9 @@ func satisfyMCPRequirement(cmd *cobra.Command) func() error {
 // Note that this requirement is for v2 only, as v1 MCPs do not have a Cluster resource.
 func satisfyMCPClusterRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		if err := req.Require(reqMCP, reqPlatformCluster); err != nil {
-			return fmt.Errorf("internal error: %w", err)
-		}
-		if internalCall {
-			return nil
+		debug.Debug("Satisfying requirement '%s'", reqMCPCluster)
+		if abort, err := handlePrerequisites(reqMCPCluster, reqMCP, reqWorkspaceNamespace, reqPlatformCluster); abort {
+			return err
 		}
 		// fetch ClusterRequest
 		debug.Debug("Fetching ClusterRequest for MCP '%s/%s' to determine Cluster name and namespace", cs.WorkspaceNamespace, cs.MCPName)
@@ -412,4 +444,18 @@ func satisfyMCPClusterRequirement(cmd *cobra.Command) func() error {
 		debug.Debug("Identified Cluster '%s/%s' belonging to MCP '%s/%s'", cs.MCPClusterNamespace, cs.MCPClusterName, cs.WorkspaceNamespace, cs.MCPName)
 		return nil
 	}
+}
+
+func handlePrerequisites(key string, prerequisites ...string) (bool, error) {
+	debug.Debug("Satisfying prerequisites for requirement '%s': %v", key, prerequisites)
+	if !internalCall {
+		if err := req.Require(prerequisites...); err != nil {
+			return true, fmt.Errorf("error satisfying prerequisites for requirement '%s': %w", key, err)
+		}
+	}
+	if internalCall {
+		debug.Debug("Aborting '%s' requirement satisfaction to wait for internal call", key)
+		return true, nil
+	}
+	return false, nil
 }

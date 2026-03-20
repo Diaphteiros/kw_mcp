@@ -117,7 +117,7 @@ func (f *Focus) Notification() string {
 	return "Switched to unknown MCP focus. This should not happen."
 }
 
-func (f *Focus) ID(pluginName string) string {
+func (f *Focus) Id(pluginName string) string {
 	prMod := ""
 	wsMod := ""
 	if f.Project != "" {
