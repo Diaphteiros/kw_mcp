@@ -6,6 +6,6 @@ includes:
     flatten: true
     vars:
       CODE_DIRS: '{{.ROOT_DIR}}/cmd/... {{.ROOT_DIR}}/pkg/...'
-      NAME: 'kw_garden'
-      REPO_NAME: 'https://github.com/Diaphteiros/kw_garden'
+      NAME: 'kw_mcp'
+      REPO_NAME: 'https://github.com/Diaphteiros/kw_mcp'
       GENERATE_DOCS_INDEX: "true"
