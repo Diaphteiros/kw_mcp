@@ -70,7 +70,7 @@ func (s *MCPState) Load(con *libcontext.Context, cfg *config.MCPConfig) (bool, e
 	}
 	if loaded != nil {
 		s.copyFrom(loaded)
-		debug.Debug("Successfully loaded MCP state: %v", loaded)
+		debug.Debug("Successfully loaded MCP state")
 		return true, nil
 	}
 	debug.Debug("No MCP state could be loaded")

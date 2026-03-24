@@ -70,13 +70,6 @@ TODO`,
 			if err := json.Unmarshal(data, cs); err != nil {
 				libutils.Fatal(1, "error unmarshalling internal callback data: %w", err)
 			}
-			// print the call state for debugging purposes
-			pData, err := yaml.Marshal(cs)
-			if err != nil {
-				debug.Debug("Error marshaling internal callback data to yaml: %v", err)
-			} else {
-				debug.Debug("Internal callback data:\n%s", string(pData))
-			}
 		} else {
 			debug.Debug("No internal callback data found, loading original state, if possible")
 			cs.OriginalState = &state.MCPState{}
@@ -96,6 +89,15 @@ TODO`,
 			} else {
 				cs.OriginalState = nil
 			}
+		}
+
+		// print the call state for debugging purposes
+		debug.Debug("Current call state:\n%+v", cs)
+		pData, err := yaml.Marshal(cs)
+		if err != nil {
+			debug.Debug("Error marshaling internal callback data to yaml: %v", err)
+		} else {
+			debug.Debug("Internal callback data:\n%s", string(pData))
 		}
 
 		mcpVersionLog := mcpVersion(cfg)
