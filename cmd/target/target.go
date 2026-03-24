@@ -272,20 +272,18 @@ TODO`,
 
 // callState is used to store information during internal calls to other plugins
 type callState struct {
-	LandscapeName               string          `json:"landscapeName,omitempty"`
-	ProjectName                 string          `json:"projectName,omitempty"`
-	ProjectNamespace            string          `json:"projectNamespace,omitempty"` // namespace that belongs to the project, this is the namespace of the Workspace resource
-	WorkspaceName               string          `json:"workspaceName,omitempty"`
-	WorkspaceNamespace          string          `json:"workspaceNamespace,omitempty"` // namespace that belongs to the workspace, not namespace of the workspace resource itself
-	MCPName                     string          `json:"mcpName,omitempty"`
-	MCPClusterName              string          `json:"mcpClusterName,omitempty"`              // v2 only: name of the Cluster resource belonging to the MCP
-	MCPClusterNamespace         string          `json:"mcpClusterNamespace,omitempty"`         // v2 only: namespace of the Cluster resource belonging to the MCP
-	OriginalState               *state.MCPState `json:"originalState,omitempty"`               // holds the state of the plugin before any internal calls were made
-	IntermediateState           *state.MCPState `json:"intermediateState,omitempty"`           // holds the current state of the plugin, which might be updated during internal calls
-	Final                       bool            `json:"final"`                                 // indicates that the target state has been reached only the provider state needs to be adapted
-	PlatformClusterKubeconfig   []byte          `json:"platformClusterKubeconfig,omitempty"`   // holds the kubeconfig of the platform cluster, if it has already been fetched
-	OnboardingClusterKubeconfig []byte          `json:"onboardingClusterKubeconfig,omitempty"` // holds the kubeconfig of the onboarding cluster, if it has already been fetched
-	OriginalStateKubeconfig     []byte          `json:"originalStateKubeconfig,omitempty"`     // holds the kubeconfig of the original state, if it belonged to an MCP landscape
+	LandscapeName           string          `json:"landscapeName,omitempty"`
+	ProjectName             string          `json:"projectName,omitempty"`
+	ProjectNamespace        string          `json:"projectNamespace,omitempty"` // namespace that belongs to the project, this is the namespace of the Workspace resource
+	WorkspaceName           string          `json:"workspaceName,omitempty"`
+	WorkspaceNamespace      string          `json:"workspaceNamespace,omitempty"` // namespace that belongs to the workspace, not namespace of the workspace resource itself
+	MCPName                 string          `json:"mcpName,omitempty"`
+	MCPClusterName          string          `json:"mcpClusterName,omitempty"`          // v2 only: name of the Cluster resource belonging to the MCP
+	MCPClusterNamespace     string          `json:"mcpClusterNamespace,omitempty"`     // v2 only: namespace of the Cluster resource belonging to the MCP
+	OriginalState           *state.MCPState `json:"originalState,omitempty"`           // holds the state of the plugin before any internal calls were made
+	IntermediateState       *state.MCPState `json:"intermediateState,omitempty"`       // holds the current state of the plugin, which might be updated during internal calls
+	Final                   bool            `json:"final"`                             // indicates that the target state has been reached only the provider state needs to be adapted
+	OriginalStateKubeconfig []byte          `json:"originalStateKubeconfig,omitempty"` // holds the kubeconfig of the original state, if it belonged to an MCP landscape
 }
 
 // setDefaultNamespaceInKubeconfig reads the current kubeconfig, and returns a marshalled version of it with the default namespace set to the provided namespace.

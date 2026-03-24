@@ -97,13 +97,13 @@ func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MC
 		if abort, err := handlePrerequisites(reqOnboardingCluster, reqLandscape); abort {
 			return err
 		}
-		// check if onboarding kubeconfig is already contained in call state
+		// check if onboarding kubeconfig is already contained in plugin state
 		onboardingCluster = clusters.New(state.MCPClusterOnboarding)
-		if len(cs.OnboardingClusterKubeconfig) > 0 {
-			debug.Debug("Using onboarding cluster kubeconfig from call state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.OnboardingClusterKubeconfig))
+		if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && len(cs.IntermediateState.OnboardingClusterKubeconfig) > 0 {
+			debug.Debug("Using onboarding cluster kubeconfig from plugin state")
+			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.IntermediateState.OnboardingClusterKubeconfig))
 			if err != nil {
-				return fmt.Errorf("error creating REST config from kubeconfig in call state: %w", err)
+				return fmt.Errorf("error creating REST config from kubeconfig in plugin state: %w", err)
 			}
 			onboardingCluster.WithRESTConfig(restCfg)
 		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsOnboardingCluster() {
@@ -117,14 +117,14 @@ func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MC
 			if err != nil {
 				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
 			}
-			cs.OnboardingClusterKubeconfig = kcfgData
+			cs.IntermediateState.OnboardingClusterKubeconfig = kcfgData
 		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsOnboardingCluster() {
 			// original state is pointing to the onboarding cluster, we can use it
 			debug.Debug("Using onboarding cluster from original state")
 			if err := onboardingCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
 				return fmt.Errorf("error initializing REST config for onboarding cluster from original state kubeconfig: %w", err)
 			}
-			cs.OnboardingClusterKubeconfig = cs.OriginalStateKubeconfig
+			cs.IntermediateState.OnboardingClusterKubeconfig = cs.OriginalStateKubeconfig
 		} else {
 			// we need to switch to the onboarding cluster to get the kubeconfig for it
 			debug.Debug("Switching to onboarding cluster")
@@ -152,13 +152,13 @@ func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPC
 		if abort, err := handlePrerequisites(reqPlatformCluster, reqLandscape); abort {
 			return err
 		}
-		// check if platform kubeconfig is already contained in call state
+		// check if platform kubeconfig is already contained in plugin state
 		platformCluster = clusters.New(state.MCPClusterPlatform)
-		if len(cs.PlatformClusterKubeconfig) > 0 {
-			debug.Debug("Using platform cluster kubeconfig from call state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.PlatformClusterKubeconfig))
+		if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && len(cs.IntermediateState.PlatformClusterKubeconfig) > 0 {
+			debug.Debug("Using platform cluster kubeconfig from plugin state")
+			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.IntermediateState.PlatformClusterKubeconfig))
 			if err != nil {
-				return fmt.Errorf("error creating REST config from kubeconfig in call state: %w", err)
+				return fmt.Errorf("error creating REST config from kubeconfig in plugin state: %w", err)
 			}
 			platformCluster.WithRESTConfig(restCfg)
 		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsPlatformCluster() {
@@ -172,14 +172,14 @@ func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPC
 			if err != nil {
 				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
 			}
-			cs.PlatformClusterKubeconfig = kcfgData
+			cs.IntermediateState.PlatformClusterKubeconfig = kcfgData
 		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsPlatformCluster() {
 			// original state is pointing to the platform cluster, we can use it
 			debug.Debug("Using platform cluster from original state")
 			if err := platformCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
 				return fmt.Errorf("error initializing REST config for platform cluster from original state kubeconfig: %w", err)
 			}
-			cs.PlatformClusterKubeconfig = cs.OriginalStateKubeconfig
+			cs.IntermediateState.PlatformClusterKubeconfig = cs.OriginalStateKubeconfig
 		} else {
 			// we need to switch to the platform cluster to get the kubeconfig for it
 			debug.Debug("Switching to platform cluster")

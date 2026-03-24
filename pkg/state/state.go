@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 
@@ -18,20 +19,23 @@ import (
 )
 
 type MCPState struct {
-	Focus *Focus `json:"focus"`
+	Focus                       *Focus `json:"focus"`
+	PlatformClusterKubeconfig   []byte `json:"platformClusterKubeconfig,omitempty"`   // holds the kubeconfig of the platform cluster, if it has already been fetched
+	OnboardingClusterKubeconfig []byte `json:"onboardingClusterKubeconfig,omitempty"` // holds the kubeconfig of the onboarding cluster, if it has already been fetched
 }
 
 func (s *MCPState) copyFrom(other *MCPState) {
 	s.Focus = other.Focus.DeepCopy()
+	s.PlatformClusterKubeconfig = bytes.Clone(other.PlatformClusterKubeconfig)
+	s.OnboardingClusterKubeconfig = bytes.Clone(other.OnboardingClusterKubeconfig)
 }
 
 func (s *MCPState) DeepCopy() *MCPState {
 	if s == nil {
 		return nil
 	}
-	res := &MCPState{
-		Focus: s.Focus.DeepCopy(),
-	}
+	res := &MCPState{}
+	res.copyFrom(s)
 	return res
 }
 
