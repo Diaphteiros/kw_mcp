@@ -1,6 +1,7 @@
 # KubeSwitcher Plugin: MCP
 
-# THIS IS WIP
+> [!IMPORTANT]
+> This project is still work in progress and some errors as well as missing documentation are to be expected!
 
 This is a plugin for the [kubeswitcher](https://github.com/Diaphteiros/kw) tool that allows to switch between clusters of an [openMCP](https://github.com/openmcp-project/openmcp-operator) landscape.
 
