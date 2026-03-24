@@ -112,8 +112,8 @@ TODO`,
 		req.Register(reqWorkspace, satisfyWorkspaceRequirement(cmd))
 		req.Register(reqWorkspaceNamespace, satisfyWorkspaceNamespaceRequirement(cmd))
 		req.Register(reqMCP, satisfyMCPRequirement(cmd))
-		req.Register(reqPlatformCluster, satisfyPlatformClusterRequirement(con, cfg))
-		req.Register(reqOnboardingCluster, satisfyOnboardingClusterRequirement(con, cfg))
+		req.Register(reqPlatformCluster, satisfyClusterRequirement(con, cfg, reqPlatformCluster))
+		req.Register(reqOnboardingCluster, satisfyClusterRequirement(con, cfg, reqOnboardingCluster))
 		req.Register(reqMCPCluster, satisfyMCPClusterRequirement(cmd))
 
 		if !cs.Final {

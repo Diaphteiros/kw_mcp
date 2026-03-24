@@ -89,110 +89,97 @@ func satisfyLandscapeRequirement(cfg *config.MCPConfig) func() error {
 	}
 }
 
-// onboarding cluster requirement
-// If satisfied, the onboardingCluster variable can be expected to be ready for use.
-func satisfyOnboardingClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig) func() error {
-	return func() error {
-		debug.Debug("Satisfying requirement '%s'", reqOnboardingCluster)
-		if abort, err := handlePrerequisites(reqOnboardingCluster, reqLandscape); abort {
-			return err
-		}
-		// check if onboarding kubeconfig is already contained in plugin state
-		onboardingCluster = clusters.New(state.MCPClusterOnboarding)
-		if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && len(cs.IntermediateState.OnboardingClusterKubeconfig) > 0 {
-			debug.Debug("Using onboarding cluster kubeconfig from plugin state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.IntermediateState.OnboardingClusterKubeconfig))
-			if err != nil {
-				return fmt.Errorf("error creating REST config from kubeconfig in plugin state: %w", err)
-			}
-			onboardingCluster.WithRESTConfig(restCfg)
-		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsOnboardingCluster() {
-			// currently used kubeconfig is pointing to the onboarding cluster, we can use it
-			debug.Debug("Using onboarding cluster from current kubeswitcher state")
-			if err := onboardingCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
-				return fmt.Errorf("error initializing REST config for onboarding cluster from current kubeconfig: %w", err)
-			}
-			// unfortunately, we cannot use onboardingCluster.WriteKubeconfig(), as that does not support all authentication types
-			kcfgData, err := os.ReadFile(con.KubeconfigPath)
-			if err != nil {
-				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
-			}
-			cs.IntermediateState.OnboardingClusterKubeconfig = kcfgData
-		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsOnboardingCluster() {
-			// original state is pointing to the onboarding cluster, we can use it
-			debug.Debug("Using onboarding cluster from original state")
-			if err := onboardingCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
-				return fmt.Errorf("error initializing REST config for onboarding cluster from original state kubeconfig: %w", err)
-			}
-			cs.IntermediateState.OnboardingClusterKubeconfig = cs.OriginalStateKubeconfig
-		} else {
-			// we need to switch to the onboarding cluster to get the kubeconfig for it
-			debug.Debug("Switching to onboarding cluster")
-			switchToOnboardingCluster(con, cfg, cs)
-			internalCall = true
-			debug.Debug("Aborting onboarding cluster requirement satisfaction to wait for internal call")
-			return nil
-		}
-		onboardingScheme := runtime.NewScheme()
-		pwinstall.InstallOperatorAPIsOnboarding(onboardingScheme)
-		mcpv1install.Install(onboardingScheme)
-		mcpv2install.InstallOperatorAPIsOnboarding(onboardingScheme)
-		if err := onboardingCluster.InitializeClient(onboardingScheme); err != nil {
-			return fmt.Errorf("error initializing client for onboarding cluster: %w", err)
-		}
-		return nil
-	}
-}
-
-// platform cluster requirement
+// helper for onboarding/platform cluster requirement
 // If satisfied, the platformCluster variable can be expected to be ready for use.
-func satisfyPlatformClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig) func() error {
+func satisfyClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig, req string) func() error {
 	return func() error {
-		debug.Debug("Satisfying requirement '%s'", reqPlatformCluster)
-		if abort, err := handlePrerequisites(reqPlatformCluster, reqLandscape); abort {
+		debug.Debug("Satisfying requirement '%s'", req)
+		if abort, err := handlePrerequisites(req, reqLandscape); abort {
 			return err
 		}
 		// check if platform kubeconfig is already contained in plugin state
-		platformCluster = clusters.New(state.MCPClusterPlatform)
-		if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && len(cs.IntermediateState.PlatformClusterKubeconfig) > 0 {
-			debug.Debug("Using platform cluster kubeconfig from plugin state")
-			restCfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(cs.IntermediateState.PlatformClusterKubeconfig))
+		var cl *clusters.Cluster
+		var logId string
+		switch req {
+		case reqPlatformCluster:
+			cl = clusters.New(state.MCPClusterPlatform)
+			logId = "platform"
+		case reqOnboardingCluster:
+			cl = clusters.New(state.MCPClusterOnboarding)
+			logId = "onboarding"
+		default:
+			return fmt.Errorf("invalid cluster requirement '%s'", req)
+		}
+		var kcfgData []byte
+		if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName {
+			switch req {
+			case reqPlatformCluster:
+				kcfgData = cs.IntermediateState.PlatformClusterKubeconfig
+			case reqOnboardingCluster:
+				kcfgData = cs.IntermediateState.OnboardingClusterKubeconfig
+			}
+		}
+		if len(kcfgData) > 0 {
+			debug.Debug("Using %s cluster kubeconfig from plugin state", logId)
+			restCfg, err := clientcmd.RESTConfigFromKubeConfig(kcfgData)
 			if err != nil {
 				return fmt.Errorf("error creating REST config from kubeconfig in plugin state: %w", err)
 			}
-			platformCluster.WithRESTConfig(restCfg)
-		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && cs.IntermediateState.Focus.IsPlatformCluster() {
-			// currently used kubeconfig is pointing to the platform cluster, we can use it
-			debug.Debug("Using platform cluster from current kubeswitcher state")
-			if err := platformCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
-				return fmt.Errorf("error initializing REST config for platform cluster from current kubeconfig: %w", err)
+			cl.WithRESTConfig(restCfg)
+		} else if cs.IntermediateState != nil && cs.IntermediateState.Focus.Landscape == cs.LandscapeName && ((req == reqPlatformCluster && cs.IntermediateState.Focus.IsPlatformCluster()) || (req == reqOnboardingCluster && cs.IntermediateState.Focus.IsOnboardingCluster())) {
+			// currently used kubeconfig is pointing to the desired cluster, we can use it
+			debug.Debug("Using %s cluster from current kubeswitcher state", logId)
+			if err := cl.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
+				return fmt.Errorf("error initializing REST config for %s cluster from current kubeconfig: %w", logId, err)
 			}
-			// unfortunately, we cannot use platformCluster.WriteKubeconfig(), as that does not support all authentication types
+			// unfortunately, we cannot use cl.WriteKubeconfig(), as that does not support all authentication types
 			kcfgData, err := os.ReadFile(con.KubeconfigPath)
 			if err != nil {
 				return fmt.Errorf("error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
 			}
-			cs.IntermediateState.PlatformClusterKubeconfig = kcfgData
-		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && cs.OriginalState.Focus.IsPlatformCluster() {
-			// original state is pointing to the platform cluster, we can use it
-			debug.Debug("Using platform cluster from original state")
-			if err := platformCluster.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
-				return fmt.Errorf("error initializing REST config for platform cluster from original state kubeconfig: %w", err)
+			switch req {
+			case reqPlatformCluster:
+				cs.IntermediateState.PlatformClusterKubeconfig = kcfgData
+			case reqOnboardingCluster:
+				cs.IntermediateState.OnboardingClusterKubeconfig = kcfgData
 			}
-			cs.IntermediateState.PlatformClusterKubeconfig = cs.OriginalStateKubeconfig
+		} else if cs.OriginalState != nil && cs.OriginalState.Focus.Landscape == cs.LandscapeName && ((req == reqPlatformCluster && cs.OriginalState.Focus.IsPlatformCluster()) || (req == reqOnboardingCluster && cs.OriginalState.Focus.IsOnboardingCluster())) {
+			// original state is pointing to the desired cluster, we can use it
+			debug.Debug("Using %s cluster from original state", logId)
+			if err := cl.WithConfigPath(con.KubeconfigPath).InitializeRESTConfig(); err != nil {
+				return fmt.Errorf("error initializing REST config for %s cluster from original state kubeconfig: %w", logId, err)
+			}
+			switch req {
+			case reqPlatformCluster:
+				cs.IntermediateState.PlatformClusterKubeconfig = cs.OriginalStateKubeconfig
+			case reqOnboardingCluster:
+				cs.IntermediateState.OnboardingClusterKubeconfig = cs.OriginalStateKubeconfig
+			}
 		} else {
-			// we need to switch to the platform cluster to get the kubeconfig for it
-			debug.Debug("Switching to platform cluster")
-			switchToPlatformCluster(con, cfg, cs)
+			// we need to switch to the desired cluster to get the kubeconfig for it
+			debug.Debug("Switching to %s cluster", logId)
+			switch req {
+			case reqPlatformCluster:
+				switchToPlatformCluster(con, cfg, cs)
+			case reqOnboardingCluster:
+				switchToOnboardingCluster(con, cfg, cs)
+			}
 			internalCall = true
-			debug.Debug("Aborting platform cluster requirement satisfaction to wait for internal call")
+			debug.Debug("Aborting %s cluster requirement satisfaction to wait for internal call", logId)
 			return nil
 		}
-		platformScheme := runtime.NewScheme()
-		pwinstall.InstallOperatorAPIsPlatform(platformScheme)
-		mcpv2install.InstallOperatorAPIsPlatform(platformScheme)
-		if err := platformCluster.InitializeClient(platformScheme); err != nil {
-			return fmt.Errorf("error initializing client for platform cluster: %w", err)
+		sc := runtime.NewScheme()
+		switch req {
+		case reqPlatformCluster:
+			pwinstall.InstallOperatorAPIsPlatform(sc)
+			mcpv2install.InstallOperatorAPIsPlatform(sc)
+		case reqOnboardingCluster:
+			pwinstall.InstallOperatorAPIsOnboarding(sc)
+			mcpv1install.Install(sc)
+			mcpv2install.InstallOperatorAPIsOnboarding(sc)
+		}
+		if err := cl.InitializeClient(sc); err != nil {
+			return fmt.Errorf("error initializing client for %s cluster: %w", logId, err)
 		}
 		return nil
 	}
