@@ -1,7 +1,7 @@
 github.com/Diaphteiros/kw v1.0.2-0.20260320143720-aa4fa095d11d h1:ZL/Iu8oB6DwuSLvo2xbeTbTpXrLftEsWMit6J+eFvyg=
 github.com/Diaphteiros/kw v1.0.2-0.20260320143720-aa4fa095d11d/go.mod h1:uOZ0tK7EbYr+ZoJ1+xEmJnXZ2YvPiPGL4Jd1TSYy/34=
-github.com/Diaphteiros/kw/pluginlib v1.0.2-0.20260320162742-3ad6ffe13b22 h1:EvPSbQL1RS2Ssf4WFVZ9sZeOqulP0m6Nwzl6qiJg9m8=
-github.com/Diaphteiros/kw/pluginlib v1.0.2-0.20260320162742-3ad6ffe13b22/go.mod h1:QBdJP7zSs/mSmMlLp3HHI9mGgO7E3OvvWKTBx0kVNKQ=
+github.com/Diaphteiros/kw/pluginlib v1.1.0 h1:CcdE02o3xWW4x2cGuHI5VQTU5Tvl8evWPfiTc5sTbNw=
+github.com/Diaphteiros/kw/pluginlib v1.1.0/go.mod h1:QBdJP7zSs/mSmMlLp3HHI9mGgO7E3OvvWKTBx0kVNKQ=
 github.com/Diaphteiros/kw_garden v1.0.0 h1:F7yazcIRsR4f4yTbLkpOURkVYRoS4TGQoX4U2pMyt/E=
 github.com/Diaphteiros/kw_garden v1.0.0/go.mod h1:0iOPsA4LsoHFjznArUw9Cm7gBbSwSsPawhSwKeB4+eo=
 github.com/Diaphteiros/kw_kind v1.0.0 h1:LxYtWnykLC4xOtsyxy2JPzm9aaNT2cmHct/om9f4Ogc=
