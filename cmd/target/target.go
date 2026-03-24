@@ -98,7 +98,7 @@ TODO`,
 			}
 		}
 
-		mcpVersionLog := mcpVersion
+		mcpVersionLog := mcpVersion(cfg)
 		if mcpVersionLog == "" {
 			mcpVersionLog = fmt.Sprintf("%s (defaulted from config)", cfg.DefaultMCPVersion)
 		}
@@ -111,7 +111,7 @@ TODO`,
 		req.Register(reqProjectNamespace, satisfyProjectNamespaceRequirement(cmd))
 		req.Register(reqWorkspace, satisfyWorkspaceRequirement(cmd))
 		req.Register(reqWorkspaceNamespace, satisfyWorkspaceNamespaceRequirement(cmd))
-		req.Register(reqMCP, satisfyMCPRequirement(cmd))
+		req.Register(reqMCP, satisfyMCPRequirement(cmd, cfg))
 		req.Register(reqPlatformCluster, satisfyClusterRequirement(con, cfg, reqPlatformCluster))
 		req.Register(reqOnboardingCluster, satisfyClusterRequirement(con, cfg, reqOnboardingCluster))
 		req.Register(reqMCPCluster, satisfyMCPClusterRequirement(cmd))

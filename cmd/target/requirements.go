@@ -334,7 +334,7 @@ func satisfyWorkspaceNamespaceRequirement(cmd *cobra.Command) func() error {
 
 // mcp requirement
 // If satisfied, cs.MCPName can be expected to be a non-empty string.
-func satisfyMCPRequirement(cmd *cobra.Command) func() error {
+func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() error {
 	return func() error {
 		debug.Debug("Satisfying requirement '%s'", reqMCP)
 		if cs.MCPName == "" {
@@ -344,7 +344,7 @@ func satisfyMCPRequirement(cmd *cobra.Command) func() error {
 					return err
 				}
 				debug.Debug("Listing MCPs in namespace '%s'", cs.WorkspaceNamespace)
-				switch mcpVersion {
+				switch mcpVersion(cfg) {
 				case config.MCPVersionV1:
 					mcpList := &mcpv1.ManagedControlPlaneList{}
 					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
@@ -382,7 +382,7 @@ func satisfyMCPRequirement(cmd *cobra.Command) func() error {
 						Select()
 					cs.MCPName = mcp.Name
 				default:
-					return fmt.Errorf("invalid MCP version '%s'", mcpVersion)
+					return fmt.Errorf("invalid MCP version '%s'", mcpVersion(cfg))
 				}
 				debug.Debug("Selected MCP: %s", cs.MCPName)
 			} else {

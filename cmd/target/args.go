@@ -15,7 +15,6 @@ var (
 	mcpArg        string
 	platformArg   bool
 	onboardingArg bool
-	mcpVersion    string
 	mcpVersionV1  bool
 	mcpVersionV2  bool
 )
@@ -48,18 +47,17 @@ func validateArgs() {
 	if mcpVersionV1 && mcpVersionV2 {
 		libutils.Fatal(1, "flags '--v1' and '--v2' are mutually exclusive")
 	}
-	if mcpVersionV1 {
-		mcpVersion = config.MCPVersionV1
-	} else if mcpVersionV2 {
-		mcpVersion = config.MCPVersionV2
-	}
 }
 
 func isMCPVersionV2(cfg *config.MCPConfig) bool {
-	if mcpVersion != "" {
-		return mcpVersion == config.MCPVersionV2
+	return mcpVersionV2 || cfg.DefaultMCPVersion == config.MCPVersionV2
+}
+
+func mcpVersion(cfg *config.MCPConfig) string {
+	if isMCPVersionV2(cfg) {
+		return config.MCPVersionV2
 	}
-	return cfg.DefaultMCPVersion == config.MCPVersionV2
+	return config.MCPVersionV1
 }
 
 // parseArgs parses the command line flags
