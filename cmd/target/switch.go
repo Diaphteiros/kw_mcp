@@ -30,7 +30,7 @@ func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MC
 	}
 	landscape, ok := cfg.Landscapes[cs.LandscapeName]
 	if !ok {
-		libutils.Fatal(1, "landscape '%s' not found in config", cs.LandscapeName)
+		libutils.Fatal(1, "landscape '%s' not found in config\n", cs.LandscapeName)
 	}
 	var ca *config.ClusterAccess
 	if targetOnboarding {
@@ -39,7 +39,7 @@ func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MC
 		ca = landscape.Platform
 	}
 	if ca == nil {
-		libutils.Fatal(1, "landscape '%s' does not have an %s cluster configured", cs.LandscapeName, logId)
+		libutils.Fatal(1, "landscape '%s' does not have an %s cluster configured\n", cs.LandscapeName, logId)
 	}
 
 	if cs.IntermediateState == nil {
@@ -53,14 +53,14 @@ func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MC
 	}
 	internalCall, err := computeInternalCallCommandForSwitchToAccess(cfg, ca)
 	if err != nil {
-		libutils.Fatal(1, "error computing internal call command: %w", err)
+		libutils.Fatal(1, "error computing internal call command: %w\n", err)
 	}
 	cbiJson, err := json.MarshalIndent(cs, "", "  ")
 	if err != nil {
-		libutils.Fatal(1, "error marshalling callback info into json: %w", err)
+		libutils.Fatal(1, "error marshalling callback info into json: %w\n", err)
 	}
 	if err := con.WriteInternalCall(internalCall, cbiJson); err != nil {
-		libutils.Fatal(1, "error writing internal call data: %w", err)
+		libutils.Fatal(1, "error writing internal call data: %w\n", err)
 	}
 }
 

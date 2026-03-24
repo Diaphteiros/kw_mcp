@@ -35,17 +35,17 @@ func init() {
 
 func validateArgs() {
 	if platformArg && onboardingArg {
-		libutils.Fatal(1, "flags '--platform' and '--onboarding' are mutually exclusive")
+		libutils.Fatal(1, "flags '--platform' and '--onboarding' are mutually exclusive\n")
 	}
 	if mcpArg != "" && (platformArg || onboardingArg) {
-		libutils.Fatal(1, "flags '--platform' and '--onboarding' cannot be used together with '--mcp'")
+		libutils.Fatal(1, "flags '--platform' and '--onboarding' cannot be used together with '--mcp'\n")
 	}
 	if !platformArg && !onboardingArg && mcpArg == "" {
 		debug.Debug("Automatically setting '--onboarding' flag because no cluster is targeted.")
 		onboardingArg = true
 	}
 	if mcpVersionV1 && mcpVersionV2 {
-		libutils.Fatal(1, "flags '--v1' and '--v2' are mutually exclusive")
+		libutils.Fatal(1, "flags '--v1' and '--v2' are mutually exclusive\n")
 	}
 }
 

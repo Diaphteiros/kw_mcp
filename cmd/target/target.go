@@ -51,31 +51,31 @@ TODO`,
 		debug.Debug("Loading kubeswitcher context from environment")
 		con, err := libcontext.NewContextFromEnv()
 		if err != nil {
-			libutils.Fatal(1, "error creating kubeswitcher context from environment (this is a plugin, did you run it as standalone?): %w", err)
+			libutils.Fatal(1, "error creating kubeswitcher context from environment (this is a plugin, did you run it as standalone?): %w\n", err)
 		}
 		debug.Debug("Kubeswitcher context loaded:\n%s", con.String())
 		debug.Debug("Loading plugin configuration")
 		cfg, err := config.LoadFromBytes([]byte(con.PluginConfig))
 		if err != nil {
-			libutils.Fatal(1, "error loading plugin configuration: %w", err)
+			libutils.Fatal(1, "error loading plugin configuration: %w\n", err)
 		}
 		debug.Debug("Plugin configuration loaded:\n%s", cfg.String())
 
 		// check if this is a callback from an internal call and set values accordingly
 		cs = &callState{}
 		if data, err := con.ReadInternalCallbackState(); err != nil {
-			libutils.Fatal(1, "error reading internal callback data: %w", err)
+			libutils.Fatal(1, "error reading internal callback data: %w\n", err)
 		} else if data != nil {
 			debug.Debug("Internal callback data found")
 			if err := json.Unmarshal(data, cs); err != nil {
-				libutils.Fatal(1, "error unmarshalling internal callback data: %w", err)
+				libutils.Fatal(1, "error unmarshalling internal callback data: %w\n", err)
 			}
 		} else {
 			debug.Debug("No internal callback data found, loading original state, if possible")
 			cs.OriginalState = &state.MCPState{}
 			loaded, err := cs.OriginalState.Load(con, cfg)
 			if err != nil {
-				libutils.Fatal(1, "error loading plugin state: %w", err)
+				libutils.Fatal(1, "error loading plugin state: %w\n", err)
 			}
 			if loaded {
 				debug.Debug("Loaded original state")
@@ -83,7 +83,7 @@ TODO`,
 				debug.Debug("Storing kubeconfig of original state, just in case")
 				kcfgData, err := os.ReadFile(con.KubeconfigPath)
 				if err != nil {
-					libutils.Fatal(1, "error reading kubeconfig file from path '%s': %w", con.KubeconfigPath, err)
+					libutils.Fatal(1, "error reading kubeconfig file from path '%s': %w\n", con.KubeconfigPath, err)
 				}
 				cs.OriginalStateKubeconfig = kcfgData
 			} else {
@@ -92,12 +92,12 @@ TODO`,
 		}
 
 		// print the call state for debugging purposes
-		debug.Debug("Current call state:\n%+v", cs)
+		debug.Debug("Current call state:\n")
 		pData, err := yaml.Marshal(cs)
 		if err != nil {
 			debug.Debug("Error marshaling internal callback data to yaml: %v", err)
 		} else {
-			debug.Debug("Internal callback data:\n%s", string(pData))
+			debug.Debug("%s", string(pData))
 		}
 
 		mcpVersionLog := mcpVersion(cfg)
@@ -124,14 +124,14 @@ TODO`,
 			// determine which cluster to target
 			// we need to target the onboarding cluster if a project, workspace, or the onboarding cluster itself is targeted
 			if err := req.Require(reqLandscape); err != nil {
-				libutils.Fatal(1, "error determining MCP landscape: %w", err)
+				libutils.Fatal(1, "error determining MCP landscape: %w\n", err)
 			}
 			if onboardingArg {
 				targetNamespace := ""
 				var adaptState func(*state.MCPState)
 				if projectArg != "" {
 					if err := req.Require(reqProject, reqProjectNamespace); err != nil {
-						libutils.Fatal(1, "error determining MCP project and/or its namespace: %w", err)
+						libutils.Fatal(1, "error determining MCP project and/or its namespace: %w\n", err)
 					}
 					if internalCall {
 						return
@@ -146,7 +146,7 @@ TODO`,
 				}
 				if workspaceArg != "" {
 					if err := req.Require(reqWorkspace, reqWorkspaceNamespace); err != nil {
-						libutils.Fatal(1, "error determining MCP workspace and/or its namespace: %w", err)
+						libutils.Fatal(1, "error determining MCP workspace and/or its namespace: %w\n", err)
 					}
 					if internalCall {
 						return
@@ -171,7 +171,7 @@ TODO`,
 				}
 				// kubeconfig is already pointing to the onboarding cluster, we just need to switch the namespace
 				if err := setDefaultNamespaceInKubeconfig(con, targetNamespace); err != nil {
-					libutils.Fatal(1, "error setting default namespace in kubeconfig: %w", err)
+					libutils.Fatal(1, "error setting default namespace in kubeconfig: %w\n", err)
 				}
 				// update state
 				cs.Final = true
@@ -189,12 +189,12 @@ TODO`,
 				}
 			} else if mcpArg != "" {
 				if err := req.Require(reqMCP); err != nil {
-					libutils.Fatal(1, "error determining MCP: %w", err)
+					libutils.Fatal(1, "error determining MCP: %w\n", err)
 				}
 				if isMCPVersionV2(cfg) {
 					// for v2, we need the Cluster resource
 					if err := req.Require(reqPlatformCluster, reqMCPCluster); err != nil {
-						libutils.Fatal(1, "error determining MCP Cluster: %w", err)
+						libutils.Fatal(1, "error determining MCP Cluster: %w\n", err)
 					}
 					if internalCall {
 						return
@@ -204,13 +204,13 @@ TODO`,
 					c.Name = cs.MCPClusterName
 					c.Namespace = cs.MCPClusterNamespace
 					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(c), c); err != nil {
-						libutils.Fatal(1, "unable to get Cluster '%s/%s' on platform cluster: %w", c.Namespace, c.Name, err)
+						libutils.Fatal(1, "unable to get Cluster '%s/%s' on platform cluster: %w\n", c.Namespace, c.Name, err)
 					}
 					// try to identify the corresponding ClusterProvider
 					p := &mcpv2cluster.ClusterProfile{}
 					p.Name = c.Spec.Profile
 					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(p), p); err != nil {
-						libutils.Fatal(1, "unable to get ClusterProfile '%s' on platform cluster: %w", p.Name, err)
+						libutils.Fatal(1, "unable to get ClusterProfile '%s' on platform cluster: %w\n", p.Name, err)
 					}
 					// build final state
 					cs.Final = true
@@ -219,13 +219,13 @@ TODO`,
 					}
 					csData, err := json.Marshal(cs)
 					if err != nil {
-						libutils.Fatal(1, "error marshalling call state for internal call: %w", err)
+						libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
 					}
 					switch p.Spec.ProviderRef.Name {
 					case "gardener":
 						shootName, shootNamespace, err := getGardenerShootName(c)
 						if err != nil {
-							libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w", c.Namespace, c.Name, err)
+							libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w\n", c.Namespace, c.Name, err)
 						}
 						shootProject := strings.TrimPrefix(shootNamespace, "garden-") // this is a convention used by Gardener, the project name is the shoot namespace without the "garden-" prefix
 						// identify the Gardener landscape of the shoot
@@ -233,25 +233,25 @@ TODO`,
 						// platform cluster is using the same Gardener landscape as the MCP clusters.
 						mcpLandscape := cfg.Landscapes[cs.LandscapeName]
 						if mcpLandscape == nil {
-							libutils.Fatal(1, "no landscape configuration found for landscape '%s'", cs.LandscapeName)
+							libutils.Fatal(1, "no landscape configuration found for landscape '%s'\n", cs.LandscapeName)
 						}
 						if mcpLandscape.Platform == nil || mcpLandscape.Platform.Gardener == nil {
-							libutils.Fatal(1, "no Gardener configuration found for landscape '%s', unable to determine Gardener landscape", cs.LandscapeName)
+							libutils.Fatal(1, "no Gardener configuration found for landscape '%s', unable to determine Gardener landscape\n", cs.LandscapeName)
 						}
 						debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to MCP '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, cs.WorkspaceNamespace, cs.MCPName)
 						if err := con.WriteInternalCall(fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, mcpLandscape.Platform.Gardener.Garden, shootProject, shootName), csData); err != nil {
-							libutils.Fatal(1, "error writing internal call data: %w", err)
+							libutils.Fatal(1, "error writing internal call data: %w\n", err)
 						}
 						return
 					case "kind":
 						kindClusterName := getKindClusterName(c)
 						debug.Debug("Targeting kind cluster '%s' belonging to MCP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.MCPName)
 						if err := con.WriteInternalCall(fmt.Sprintf("%s %s", cfg.KindPluginName, kindClusterName), csData); err != nil {
-							libutils.Fatal(1, "error writing internal call data: %w", err)
+							libutils.Fatal(1, "error writing internal call data: %w\n", err)
 						}
 						return
 					default:
-						libutils.Fatal(1, "unsupported provider '%s' for Cluster '%s/%s'", p.Spec.ProviderRef.Name, c.Namespace, c.Name)
+						libutils.Fatal(1, "unsupported provider '%s' for Cluster '%s/%s'\n", p.Spec.ProviderRef.Name, c.Namespace, c.Name)
 					}
 				}
 			}
@@ -261,13 +261,13 @@ TODO`,
 		// - cs.IntermediateState holds the desired state
 		// - the kubeconfig points to the desired cluster
 		if err := con.WriteId(cs.IntermediateState.Id(con.CurrentPluginName)); err != nil {
-			libutils.Fatal(1, "error writing state ID: %w", err)
+			libutils.Fatal(1, "error writing state ID: %w\n", err)
 		}
 		if err := con.WriteNotificationMessage(cs.IntermediateState.Notification()); err != nil {
-			libutils.Fatal(1, "error writing notification message: %w", err)
+			libutils.Fatal(1, "error writing notification message: %w\n", err)
 		}
 		if err := con.WritePluginState(cs.IntermediateState); err != nil {
-			libutils.Fatal(1, "error writing plugin state: %w", err)
+			libutils.Fatal(1, "error writing plugin state: %w\n", err)
 		}
 	},
 }
