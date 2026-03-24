@@ -103,9 +103,11 @@ func satisfyClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig, r
 		switch req {
 		case reqPlatformCluster:
 			cl = clusters.New(state.MCPClusterPlatform)
+			platformCluster = cl
 			logId = "platform"
 		case reqOnboardingCluster:
 			cl = clusters.New(state.MCPClusterOnboarding)
+			onboardingCluster = cl
 			logId = "onboarding"
 		default:
 			return fmt.Errorf("invalid cluster requirement '%s'", req)
