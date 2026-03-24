@@ -42,7 +42,10 @@ func switchToPlatformOrOnboardingCluster(con *libcontext.Context, cfg *config.MC
 		libutils.Fatal(1, "landscape '%s' does not have an %s cluster configured", cs.LandscapeName, logId)
 	}
 
-	cs.IntermediateState = &state.MCPState{Focus: state.NewEmptyFocus()}
+	if cs.IntermediateState == nil {
+		cs.IntermediateState = &state.MCPState{}
+	}
+	cs.IntermediateState.Focus = state.NewEmptyFocus()
 	if targetOnboarding {
 		cs.IntermediateState.Focus.ToOnboardingCluster(cs.LandscapeName)
 	} else {
