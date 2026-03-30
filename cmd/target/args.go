@@ -50,7 +50,7 @@ func validateArgs() {
 }
 
 func isMCPVersionV2(cfg *config.MCPConfig) bool {
-	return mcpVersionV2 || cfg.DefaultMCPVersion == config.MCPVersionV2
+	return mcpVersionV2 || (!mcpVersionV1 && cfg.DefaultMCPVersion == config.MCPVersionV2)
 }
 
 func mcpVersion(cfg *config.MCPConfig) string {

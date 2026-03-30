@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 	"sigs.k8s.io/yaml"
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
+	"github.com/Diaphteiros/kw/pluginlib/pkg/debug"
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"
 
 	"github.com/Diaphteiros/kw_mcp/pkg/config"
@@ -144,4 +146,26 @@ func getGardenerShootName(c *mcpv2cluster.Cluster) (string, string, error) {
 		return "", "", fmt.Errorf("namespace cannot be parsed as string")
 	}
 	return name, namespace, nil
+}
+
+func switchToGardenerShoot(shootName, shootNamespace string, con *libcontext.Context, cfg *config.MCPConfig, cs *callState) {
+	csData, err := json.Marshal(cs)
+	if err != nil {
+		libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
+	}
+	shootProject := strings.TrimPrefix(shootNamespace, "garden-") // this is a convention used by Gardener, the project name is the shoot namespace without the "garden-" prefix
+	// identify the Gardener landscape of the shoot
+	// The correct way to do this would be to go from Cluster -> ClusterProfile -> ProviderConfig -> Landscape, but to avoid some complexity, we are just going to assume that the
+	// platform cluster is using the same Gardener landscape as the MCP clusters.
+	mcpLandscape := cfg.Landscapes[cs.LandscapeName]
+	if mcpLandscape == nil {
+		libutils.Fatal(1, "no landscape configuration found for landscape '%s'\n", cs.LandscapeName)
+	}
+	if mcpLandscape.Platform == nil || mcpLandscape.Platform.Gardener == nil {
+		libutils.Fatal(1, "no Gardener configuration found for landscape '%s', unable to determine Gardener landscape\n", cs.LandscapeName)
+	}
+	debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to MCP (%s) '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, mcpVersion(cfg), cs.WorkspaceNamespace, cs.MCPName)
+	if err := con.WriteInternalCall(fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, mcpLandscape.Platform.Gardener.Garden, shootProject, shootName), csData); err != nil {
+		libutils.Fatal(1, "error writing internal call data: %w\n", err)
+	}
 }
