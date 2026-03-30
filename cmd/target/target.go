@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
+	mcpv1 "github.com/openmcp-project/mcp-operator/api/core/v1alpha1"
 	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
@@ -217,33 +218,19 @@ TODO`,
 					cs.IntermediateState = &state.MCPState{
 						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
 					}
-					csData, err := json.Marshal(cs)
-					if err != nil {
-						libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
-					}
 					switch p.Spec.ProviderRef.Name {
 					case "gardener":
 						shootName, shootNamespace, err := getGardenerShootName(c)
 						if err != nil {
 							libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w\n", c.Namespace, c.Name, err)
 						}
-						shootProject := strings.TrimPrefix(shootNamespace, "garden-") // this is a convention used by Gardener, the project name is the shoot namespace without the "garden-" prefix
-						// identify the Gardener landscape of the shoot
-						// The correct way to do this would be to go from Cluster -> ClusterProfile -> ProviderConfig -> Landscape, but to avoid some complexity, we are just going to assume that the
-						// platform cluster is using the same Gardener landscape as the MCP clusters.
-						mcpLandscape := cfg.Landscapes[cs.LandscapeName]
-						if mcpLandscape == nil {
-							libutils.Fatal(1, "no landscape configuration found for landscape '%s'\n", cs.LandscapeName)
-						}
-						if mcpLandscape.Platform == nil || mcpLandscape.Platform.Gardener == nil {
-							libutils.Fatal(1, "no Gardener configuration found for landscape '%s', unable to determine Gardener landscape\n", cs.LandscapeName)
-						}
-						debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to MCP '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, cs.WorkspaceNamespace, cs.MCPName)
-						if err := con.WriteInternalCall(fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, mcpLandscape.Platform.Gardener.Garden, shootProject, shootName), csData); err != nil {
-							libutils.Fatal(1, "error writing internal call data: %w\n", err)
-						}
+						switchToGardenerShoot(shootName, shootNamespace, con, cfg, cs)
 						return
 					case "kind":
+						csData, err := json.Marshal(cs)
+						if err != nil {
+							libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
+						}
 						kindClusterName := getKindClusterName(c)
 						debug.Debug("Targeting kind cluster '%s' belonging to MCP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.MCPName)
 						if err := con.WriteInternalCall(fmt.Sprintf("%s %s", cfg.KindPluginName, kindClusterName), csData); err != nil {
@@ -253,6 +240,36 @@ TODO`,
 					default:
 						libutils.Fatal(1, "unsupported provider '%s' for Cluster '%s/%s'\n", p.Spec.ProviderRef.Name, c.Namespace, c.Name)
 					}
+				} else {
+					// for v1, we take the shoot information from the APIServer resource
+					if err := req.Require(reqOnboardingCluster, reqWorkspaceNamespace); err != nil {
+						libutils.Fatal(1, "error determining MCP Cluster: %w\n", err)
+					}
+					if internalCall {
+						return
+					}
+					// fetch APIServer resource from onboarding cluster
+					as := &mcpv1.APIServer{}
+					as.Name = cs.MCPName
+					as.Namespace = cs.WorkspaceNamespace
+					if err := onboardingCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(as), as); err != nil {
+						libutils.Fatal(1, "unable to get APIServer '%s/%s' from onboarding cluster: %w\n", as.Namespace, as.Name, err)
+					}
+					if as.Status.GardenerStatus == nil || as.Status.GardenerStatus.Shoot == nil {
+						libutils.Fatal(1, "APIServer '%s/%s' does not contain Gardener shoot information in its status, cannot target MCP '%s/%s'\n", as.Namespace, as.Name, cs.WorkspaceNamespace, cs.MCPName)
+					}
+					// parse shoot to unstructured.Unstructured, as we only need the metadata
+					shoot := &unstructured.Unstructured{}
+					if err := yaml.Unmarshal(as.Status.GardenerStatus.Shoot.Raw, shoot); err != nil {
+						libutils.Fatal(1, "unable to parse APIServer.status.gardener.shoot to unstructured: %s\n", err.Error())
+					}
+					// build final state
+					cs.Final = true
+					cs.IntermediateState = &state.MCPState{
+						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
+					}
+					switchToGardenerShoot(shoot.GetName(), shoot.GetNamespace(), con, cfg, cs)
+					return
 				}
 			}
 		}
