@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -43,6 +44,12 @@ var TargetCmd = &cobra.Command{
 
 TODO`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if slices.Contains(args, "--help") || slices.Contains(args, "-h") {
+			if err := cmd.Usage(); err != nil {
+				cmd.PrintErrf("unable to print usage info: %v", err)
+			}
+			return
+		}
 		// parse flags
 		parseArgs(cmd, args)
 		// validate arguments
