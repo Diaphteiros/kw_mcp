@@ -5,10 +5,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	staticversion "github.com/Diaphteiros/kw_mcp/pkg/version"
+	"sigs.k8s.io/yaml"
 
 	libutils "github.com/Diaphteiros/kw/pluginlib/pkg/utils"
-	"sigs.k8s.io/yaml"
+
+	"github.com/Diaphteiros/kw_mcp/internal/version"
 )
 
 // variables for holding the flags
@@ -40,23 +41,24 @@ var VersionCmd = &cobra.Command{
   minor: "2"
   platform: darwin/arm64`,
 	Run: func(cmd *cobra.Command, args []string) {
+		ver := version.Get()
 		switch output {
 		case libutils.OUTPUT_TEXT:
-			cmd.Print(staticversion.Version.String())
+			cmd.Print(ver.String())
 		case libutils.OUTPUT_JSON:
-			data, err := json.Marshal(staticversion.Version)
+			data, err := json.Marshal(ver)
 			if err != nil {
 				libutils.Fatal(1, "error converting version to json: %w\n", err)
 			}
 			cmd.Println(string(data))
 		case libutils.OUTPUT_YAML:
-			data, err := yaml.Marshal(staticversion.Version)
+			data, err := yaml.Marshal(ver)
 			if err != nil {
 				libutils.Fatal(1, "error converting version to yaml: %w\n", err)
 			}
 			cmd.Print(string(data))
 		default:
-			libutils.Fatal(1, "unknown output format '%s'\n", string(output))
+			libutils.Fatal(1, "unknown output format '%s'", string(output))
 		}
 	},
 }
