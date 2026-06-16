@@ -34,8 +34,8 @@ const (
 	reqLandscape          = "landscape"
 	reqProject            = "project"
 	reqWorkspace          = "workspace"
-	reqMCP                = "mcp"
-	reqMCPCluster         = "mcpCluster"
+	reqCP                 = "cp"
+	reqCPCluster          = "cpCluster"
 	reqOnboardingCluster  = "onboardingCluster"
 	reqPlatformCluster    = "platformCluster"
 	reqProjectNamespace   = "projectNamespace"
@@ -332,18 +332,18 @@ func satisfyWorkspaceNamespaceRequirement(cmd *cobra.Command) func() error {
 	}
 }
 
-// mcp requirement
-// If satisfied, cs.MCPName can be expected to be a non-empty string.
+// cp requirement
+// If satisfied, cs.CPName can be expected to be a non-empty string.
 func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() error {
 	return func() error {
-		debug.Debug("Satisfying requirement '%s'", reqMCP)
-		if cs.MCPName == "" {
-			if mcpArg == PromptForArg {
-				// we need to switch to the onboarding cluster to get the list of mcps
-				if abort, err := handlePrerequisites(reqMCP, reqOnboardingCluster, reqWorkspaceNamespace); abort {
+		debug.Debug("Satisfying requirement '%s'", reqCP)
+		if cs.CPName == "" {
+			if cpArg == PromptForArg {
+				// we need to switch to the onboarding cluster to get the list of cps
+				if abort, err := handlePrerequisites(reqCP, reqOnboardingCluster, reqWorkspaceNamespace); abort {
 					return err
 				}
-				debug.Debug("Listing MCPs in namespace '%s'", cs.WorkspaceNamespace)
+				debug.Debug("Listing ControlPlanes in namespace '%s'", cs.WorkspaceNamespace)
 				switch mcpVersion(cfg) {
 				case config.MCPVersionV1:
 					mcpList := &mcpv1.ManagedControlPlaneList{}
@@ -353,7 +353,7 @@ func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() err
 					slices.SortFunc(mcpList.Items, func(a, b mcpv1.ManagedControlPlane) int {
 						return -strings.Compare(a.Name, b.Name)
 					})
-					debug.Debug("Prompting for MCP name.")
+					debug.Debug("Prompting for ControlPlane name.")
 					// select MCP mcp
 					_, mcp, _ := selector.New[mcpv1.ManagedControlPlane]().
 						WithPrompt("Select MCP: ").
@@ -362,75 +362,75 @@ func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() err
 						WithPreview(mcpv1SelectorPreview).
 						From(mcpList.Items, func(elem mcpv1.ManagedControlPlane) string { return elem.Name }).
 						Select()
-					cs.MCPName = mcp.Name
+					cs.CPName = mcp.Name
 				case config.MCPVersionV2:
-					mcpList := &mcpv2.ManagedControlPlaneV2List{}
-					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
-						return fmt.Errorf("unable to list v2 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
+					cpList := &mcpv2.ControlPlaneList{}
+					if err := onboardingCluster.Client().List(cmd.Context(), cpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
+						return fmt.Errorf("unable to list v2 ControlPlanes in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
 					}
-					slices.SortFunc(mcpList.Items, func(a, b mcpv2.ManagedControlPlaneV2) int {
+					slices.SortFunc(cpList.Items, func(a, b mcpv2.ControlPlane) int {
 						return -strings.Compare(a.Name, b.Name)
 					})
-					debug.Debug("Prompting for MCP name.")
-					// select MCP mcp
-					_, mcp, _ := selector.New[mcpv2.ManagedControlPlaneV2]().
-						WithPrompt("Select MCP: ").
-						WithFatalOnAbort("No MCP selected.").
-						WithFatalOnError("error selecting MCP: %w").
+					debug.Debug("Prompting for ControlPlane name.")
+					// select ControlPlane
+					_, cp, _ := selector.New[mcpv2.ControlPlane]().
+						WithPrompt("Select ControlPlane: ").
+						WithFatalOnAbort("No ControlPlane selected.").
+						WithFatalOnError("error selecting ControlPlane: %w").
 						WithPreview(mcpv2SelectorPreview).
-						From(mcpList.Items, func(elem mcpv2.ManagedControlPlaneV2) string { return elem.Name }).
+						From(cpList.Items, func(elem mcpv2.ControlPlane) string { return elem.Name }).
 						Select()
-					cs.MCPName = mcp.Name
+					cs.CPName = cp.Name
 				default:
 					return fmt.Errorf("invalid MCP version '%s'", mcpVersion(cfg))
 				}
-				debug.Debug("Selected MCP: %s", cs.MCPName)
+				debug.Debug("Selected ControlPlane: %s", cs.CPName)
 			} else {
-				cs.MCPName = mcpArg
+				cs.CPName = cpArg
 			}
 		}
-		if cs.MCPName == "" && landscapeArg == "" && projectArg == "" && workspaceArg == "" { // only derive mcp from state if none of landscape, project, and workspace were explicitly specified
-			debug.Debug("No MCP specified via arguments, trying to retrieve it from state.")
+		if cs.CPName == "" && landscapeArg == "" && projectArg == "" && workspaceArg == "" { // only derive CP from state if none of landscape, project, and workspace were explicitly specified
+			debug.Debug("No ControlPlane specified via arguments, trying to retrieve it from state.")
 			if cs.OriginalState != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeMCP {
-				cs.MCPName = cs.OriginalState.Focus.Cluster
+				cs.CPName = cs.OriginalState.Focus.Cluster
 			}
-			if cs.MCPName != "" {
-				debug.Debug("Identified MCP '%s' from state.", cs.MCPName)
+			if cs.CPName != "" {
+				debug.Debug("Identified ControlPlane '%s' from state.", cs.CPName)
 			} else {
-				return fmt.Errorf("unable to infer MCP name from previous command's state, specify it via '--mcp' flag")
+				return fmt.Errorf("unable to infer ControlPlane name from previous command's state, specify it via '--controlplane' flag")
 			}
 		}
 		return nil
 	}
 }
 
-// MCP cluster requirement
-// If satisfied, cs.MCPClusterName and cs.MCPClusterNamespace can be expected to be non-empty strings containing the name and namespace of the Cluster resource belonging to the targeted MCP.
-// Note that this requirement is for v2 only, as v1 MCPs do not have a Cluster resource.
-func satisfyMCPClusterRequirement(cmd *cobra.Command) func() error {
+// ControlPlane cluster requirement
+// If satisfied, cs.MCPClusterName and cs.MCPClusterNamespace can be expected to be non-empty strings containing the name and namespace of the Cluster resource belonging to the targeted ControlPlane.
+// Note that this requirement is for v2 only, as v1 ControlPlanes do not have a Cluster resource.
+func satisfyCPClusterRequirement(cmd *cobra.Command) func() error {
 	return func() error {
-		debug.Debug("Satisfying requirement '%s'", reqMCPCluster)
-		if abort, err := handlePrerequisites(reqMCPCluster, reqMCP, reqWorkspaceNamespace, reqPlatformCluster); abort {
+		debug.Debug("Satisfying requirement '%s'", reqCPCluster)
+		if abort, err := handlePrerequisites(reqCPCluster, reqCP, reqWorkspaceNamespace, reqPlatformCluster); abort {
 			return err
 		}
 		// fetch ClusterRequest
-		debug.Debug("Fetching ClusterRequest for MCP '%s/%s' to determine Cluster name and namespace", cs.WorkspaceNamespace, cs.MCPName)
+		debug.Debug("Fetching ClusterRequest for ControlPlane '%s/%s' to determine Cluster name and namespace", cs.WorkspaceNamespace, cs.CPName)
 		cr := &mcpv2cluster.ClusterRequest{}
-		cr.Name = cs.MCPName
+		cr.Name = cs.CPName
 		var err error
-		cr.Namespace, err = mcpv2libutils.StableMCPNamespace(cs.MCPName, cs.WorkspaceNamespace)
+		cr.Namespace, err = mcpv2libutils.StableMCPNamespace(cs.CPName, cs.WorkspaceNamespace)
 		if err != nil {
-			return fmt.Errorf("unable to determine MCP namespace: %w", err)
+			return fmt.Errorf("unable to determine ControlPlane namespace: %w", err)
 		}
 		if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(cr), cr); err != nil {
-			return fmt.Errorf("unable to get ClusterRequest for MCP '%s/%s' on platform cluster: %w", cs.WorkspaceNamespace, cs.MCPName, err)
+			return fmt.Errorf("unable to get ClusterRequest for ControlPlane '%s/%s' on platform cluster: %w", cs.WorkspaceNamespace, cs.CPName, err)
 		}
 		if cr.Status.Cluster == nil {
-			return fmt.Errorf("ClusterRequest for MCP '%s/%s' does not have 'status.cluster' set", cs.WorkspaceNamespace, cs.MCPName)
+			return fmt.Errorf("ClusterRequest for ControlPlane '%s/%s' does not have 'status.cluster' set", cs.WorkspaceNamespace, cs.CPName)
 		}
-		cs.MCPClusterName = cr.Status.Cluster.Name
-		cs.MCPClusterNamespace = cr.Status.Cluster.Namespace
-		debug.Debug("Identified Cluster '%s/%s' belonging to MCP '%s/%s'", cs.MCPClusterNamespace, cs.MCPClusterName, cs.WorkspaceNamespace, cs.MCPName)
+		cs.CPClusterName = cr.Status.Cluster.Name
+		cs.CPClusterNamespace = cr.Status.Cluster.Namespace
+		debug.Debug("Identified Cluster '%s/%s' belonging to ControlPlane '%s/%s'", cs.CPClusterNamespace, cs.CPClusterName, cs.WorkspaceNamespace, cs.CPName)
 		return nil
 	}
 }

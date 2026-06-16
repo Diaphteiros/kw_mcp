@@ -12,7 +12,7 @@ var (
 	landscapeArg  string
 	projectArg    string
 	workspaceArg  string
-	mcpArg        string
+	cpArg         string
 	platformArg   bool
 	onboardingArg bool
 	mcpVersionV1  bool
@@ -26,9 +26,11 @@ func init() {
 	TargetCmd.Flags().StringVarP(&landscapeArg, "landscape", "l", "", "The MCP landscape to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
 	TargetCmd.Flags().StringVarP(&projectArg, "project", "p", "", "The MCP project to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
 	TargetCmd.Flags().StringVarP(&workspaceArg, "workspace", "w", "", "The MCP workspace to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
-	TargetCmd.Flags().StringVarP(&mcpArg, "mcp", "m", "", "The MCP cluster to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
+	TargetCmd.Flags().StringVarP(&cpArg, "mcp", "m", "", "The MCP cluster to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
+	TargetCmd.Flag("mcp").Deprecated = "The '--mcp'/'-m' flag is deprecated and will be removed in a future release. Use '--controlplane' or '-c' instead.\n"
+	TargetCmd.Flags().StringVarP(&cpArg, "controlplane", "c", "", "The ControlPlane cluster to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
 	TargetCmd.Flags().BoolVar(&platformArg, "platform", false, "Target the landscape's platform cluster.")
-	TargetCmd.Flags().BoolVar(&onboardingArg, "onboarding", false, "Target the landscape's onboarding cluster. Is always assumed to be set if neither '--platform' nor '--mcp' is specified.")
+	TargetCmd.Flags().BoolVar(&onboardingArg, "onboarding", false, "Target the landscape's onboarding cluster. Is always assumed to be set if neither '--platform' nor '--controlplane' is specified.")
 	TargetCmd.Flags().BoolVar(&mcpVersionV1, "v1", false, "Use MCP version v1 for this command. Overrides the default MCP version specified in the config.")
 	TargetCmd.Flags().BoolVar(&mcpVersionV2, "v2", false, "Use MCP version v2 for this command. Overrides the default MCP version specified in the config.")
 }
@@ -37,10 +39,10 @@ func validateArgs() {
 	if platformArg && onboardingArg {
 		libutils.Fatal(1, "flags '--platform' and '--onboarding' are mutually exclusive\n")
 	}
-	if mcpArg != "" && (platformArg || onboardingArg) {
-		libutils.Fatal(1, "flags '--platform' and '--onboarding' cannot be used together with '--mcp'\n")
+	if cpArg != "" && (platformArg || onboardingArg) {
+		libutils.Fatal(1, "flags '--platform' and '--onboarding' cannot be used together with '--controlplane'\n")
 	}
-	if !platformArg && !onboardingArg && mcpArg == "" {
+	if !platformArg && !onboardingArg && cpArg == "" {
 		debug.Debug("Automatically setting '--onboarding' flag because no cluster is targeted.")
 		onboardingArg = true
 	}
@@ -88,11 +90,14 @@ func parseArgs(cmd *cobra.Command, args []string) {
 				workspaceArg = PromptForArg
 			}
 		case "--mcp", "-m":
+			cmd.PrintErr(cmd.Flag("mcp").Deprecated)
+			fallthrough
+		case "--controlplane", "-c":
 			if i+1 < len(args) && !isFlag(args[i+1]) {
-				mcpArg = args[i+1]
+				cpArg = args[i+1]
 				i++
 			} else {
-				mcpArg = PromptForArg
+				cpArg = PromptForArg
 			}
 		case "--platform":
 			platformArg = true

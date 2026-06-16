@@ -169,7 +169,7 @@ func mcpv1SelectorPreview(mcp mcpv1.ManagedControlPlane, _, _ int) string {
 
 // MCP v2
 
-func mcpv2SelectorPreview(mcp mcpv2.ManagedControlPlaneV2, _, _ int) string {
+func mcpv2SelectorPreview(mcp mcpv2.ControlPlane, _, _ int) string {
 	sb := strings.Builder{}
 	fmt.Fprintf(&sb, "Name: %s\n", mcp.Name)
 
