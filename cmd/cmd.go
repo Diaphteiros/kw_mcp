@@ -13,8 +13,8 @@ var RootCmd = &cobra.Command{
 	Use:               "kw_mcp <command>",
 	DisableAutoGenTag: true,
 	Args:              cobra.RangeArgs(0, 1),
-	Short:             "Interact with an MCP landscape",
-	Long: `Interact with an MCP landscape.
+	Short:             "Interact with an openMCP landscape",
+	Long: `Interact with an openMCP landscape.
 
 Checkout the subcommands for more details.`,
 }

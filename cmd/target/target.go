@@ -39,18 +39,18 @@ var TargetCmd = &cobra.Command{
 	DisableAutoGenTag:  true,
 	DisableFlagParsing: true,
 	Args:               cobra.ArbitraryArgs,
-	Short:              "Switch to an MCP cluster",
-	Long: `Switch to an MCP cluster.
+	Short:              "Switch to a ControlPlane cluster",
+	Long: `Switch to a ControlPlane cluster.
 
-This command can be used to switch the kubeconfig to a cluster belonging to an MCP landscape.
+This command can be used to switch the kubeconfig to a cluster belonging to an openMCP landscape.
 
 The following arguments specify the target cluster:
 - --landscape/-l <name>: The MCP landscape to target.
 - --project/-p <name>: The project (project namespace on the onboarding cluster) to target.
 - --workspace/-w <name>: The workspace (workspace namespace on the onboarding cluster) to target.
-- --mcp/-m <name>: The MCP cluster to target. Mutually exclusive with --platform and --onboarding.
-- --platform: Target the landscape's platform cluster. Mutually exclusive with --mcp and --onboarding.
-- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --mcp and --platform.
+- --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --platform and --onboarding.
+- --platform: Target the landscape's platform cluster. Mutually exclusive with --controlplane and --onboarding.
+- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane and --platform.
 
 Targeting a landscape does not have any requirements, except from the landscape being defined in the plugin configuration.
 If neither --platform nor --onboarding is specified, the onboarding cluster is targeted by default.
@@ -61,12 +61,12 @@ It results in the onboarding cluster being targeted, with the default namespace 
 Targeting a workspace requires the project to be either set via the corresponding argument or recoverable from the kubeswitcher state, and thus also the landscape.
 It results in the onboarding cluster being targeted, with the default namespace in the kubeconfig set to the workspace namespace.
 
-Targeting an MCP cluster requires landscape, project, and workspace to be either set via the corresponding arguments or recoverable from the kubeswitcher state.
+Targeting a ControlPlane cluster requires landscape, project, and workspace to be either set via the corresponding arguments or recoverable from the kubeswitcher state.
 The '--v1' and '--v2' flags can be used to specify which MCP version to target. If not specified, the default from the config (v2, if not explicitly set) is used.
 
 If '--platform' is specified, the platform cluster of the landscape is targeted. This requires only the landscape to be known.
 
-All of the '--landscape', '--project', '--workspace', and '--mcp' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
+All of the '--landscape', '--project', '--workspace', and '--controlplane' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
 If the argument is required, but not specified at all, the command fails if the value cannot be recovered from the current kubeswitcher state.
 
 Examples:
@@ -81,16 +81,16 @@ Examples:
 	# Fails if the landscape cannot be recovered from the state.
 	kw mcp target --project my-project
 
-	# Target the cluster belonging to the v1 MCP 'foo' on the 'live' landscape, in the project 'my-project' and the workspace 'my-ws'.
-	kw mcp target --landscape live --project my-project --workspace my-ws --mcp foo --v1
+	# Target the cluster belonging to the v1 ManagedControlPlane 'foo' on the 'live' landscape, in the project 'my-project' and the workspace 'my-ws'.
+	kw mcp target --landscape live --project my-project --workspace my-ws --controlplane foo --v1
 
-	# Target a cluster belonging to a v2 MCP. Prompts for landscape, project, workspace and MCP selection.
+	# Target a cluster belonging to a v2 ControlPlane. Prompts for landscape, project, workspace and ControlPlane selection.
 	# The '--v2' could be omitted, unless the default MCP version has been set to 'v1' in the plugin config.
-	kw mcp target -l -p -w -m --v2`,
+	kw mcp target -l -p -w -c --v2`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if slices.Contains(args, "--help") || slices.Contains(args, "-h") {
-			if err := cmd.Usage(); err != nil {
-				cmd.PrintErrf("unable to print usage info: %v", err)
+			if err := cmd.Help(); err != nil {
+				cmd.PrintErrf("unable to print help: %v", err)
 			}
 			return
 		}
@@ -156,7 +156,7 @@ Examples:
 		if mcpVersionLog == "" {
 			mcpVersionLog = fmt.Sprintf("%s (defaulted from config)", cfg.DefaultMCPVersion)
 		}
-		debug.Debug("Command called with the following arguments:\n  --landscape: %s\n  --project: %s\n  --workspace: %s\n  --mcp: %s\n  --onboarding: %v\n  --platform: %v\n  MCP version: %s", landscapeArg, projectArg, workspaceArg, mcpArg, onboardingArg, platformArg, mcpVersionLog)
+		debug.Debug("Command called with the following arguments:\n  --landscape: %s\n  --project: %s\n  --workspace: %s\n  --mcp: %s\n  --onboarding: %v\n  --platform: %v\n  MCP version: %s", landscapeArg, projectArg, workspaceArg, cpArg, onboardingArg, platformArg, mcpVersionLog)
 
 		// setup requirements
 		// has to happen here due to required context
@@ -165,10 +165,10 @@ Examples:
 		req.Register(reqProjectNamespace, satisfyProjectNamespaceRequirement(cmd))
 		req.Register(reqWorkspace, satisfyWorkspaceRequirement(cmd))
 		req.Register(reqWorkspaceNamespace, satisfyWorkspaceNamespaceRequirement(cmd))
-		req.Register(reqMCP, satisfyMCPRequirement(cmd, cfg))
+		req.Register(reqCP, satisfyMCPRequirement(cmd, cfg))
 		req.Register(reqPlatformCluster, satisfyClusterRequirement(con, cfg, reqPlatformCluster))
 		req.Register(reqOnboardingCluster, satisfyClusterRequirement(con, cfg, reqOnboardingCluster))
-		req.Register(reqMCPCluster, satisfyMCPClusterRequirement(cmd))
+		req.Register(reqCPCluster, satisfyCPClusterRequirement(cmd))
 
 		if !cs.Final {
 			// If cs.Final is true, this means that we returned from an internal call which has set the kubeconfig to the correct cluster and we just need to write the metadata (provider state, etc.).
@@ -239,22 +239,22 @@ Examples:
 					switchToPlatformCluster(con, cfg, cs)
 					return
 				}
-			} else if mcpArg != "" {
-				if err := req.Require(reqMCP); err != nil {
-					libutils.Fatal(1, "error determining MCP: %w\n", err)
+			} else if cpArg != "" {
+				if err := req.Require(reqCP); err != nil {
+					libutils.Fatal(1, "error determining CP: %w\n", err)
 				}
 				if isMCPVersionV2(cfg) {
 					// for v2, we need the Cluster resource
-					if err := req.Require(reqPlatformCluster, reqMCPCluster); err != nil {
-						libutils.Fatal(1, "error determining MCP Cluster: %w\n", err)
+					if err := req.Require(reqPlatformCluster, reqCPCluster); err != nil {
+						libutils.Fatal(1, "error determining CP Cluster: %w\n", err)
 					}
 					if internalCall {
 						return
 					}
 					// fetch cluster
 					c := &mcpv2cluster.Cluster{}
-					c.Name = cs.MCPClusterName
-					c.Namespace = cs.MCPClusterNamespace
+					c.Name = cs.CPClusterName
+					c.Namespace = cs.CPClusterNamespace
 					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(c), c); err != nil {
 						libutils.Fatal(1, "unable to get Cluster '%s/%s' on platform cluster: %w\n", c.Namespace, c.Name, err)
 					}
@@ -267,7 +267,7 @@ Examples:
 					// build final state
 					cs.Final = true
 					cs.IntermediateState = &state.MCPState{
-						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
+						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.CPName),
 					}
 					switch p.Spec.ProviderRef.Name {
 					case "gardener":
@@ -283,7 +283,7 @@ Examples:
 							libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
 						}
 						kindClusterName := getKindClusterName(c)
-						debug.Debug("Targeting kind cluster '%s' belonging to MCP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.MCPName)
+						debug.Debug("Targeting kind cluster '%s' belonging to CP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.CPName)
 						if err := con.WriteInternalCall(fmt.Sprintf("%s %s", cfg.KindPluginName, kindClusterName), csData); err != nil {
 							libutils.Fatal(1, "error writing internal call data: %w\n", err)
 						}
@@ -301,13 +301,13 @@ Examples:
 					}
 					// fetch APIServer resource from onboarding cluster
 					as := &mcpv1.APIServer{}
-					as.Name = cs.MCPName
+					as.Name = cs.CPName
 					as.Namespace = cs.WorkspaceNamespace
 					if err := onboardingCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(as), as); err != nil {
 						libutils.Fatal(1, "unable to get APIServer '%s/%s' from onboarding cluster: %w\n", as.Namespace, as.Name, err)
 					}
 					if as.Status.GardenerStatus == nil || as.Status.GardenerStatus.Shoot == nil {
-						libutils.Fatal(1, "APIServer '%s/%s' does not contain Gardener shoot information in its status, cannot target MCP '%s/%s'\n", as.Namespace, as.Name, cs.WorkspaceNamespace, cs.MCPName)
+						libutils.Fatal(1, "APIServer '%s/%s' does not contain Gardener shoot information in its status, cannot target CP '%s/%s'\n", as.Namespace, as.Name, cs.WorkspaceNamespace, cs.CPName)
 					}
 					// parse shoot to unstructured.Unstructured, as we only need the metadata
 					shoot := &unstructured.Unstructured{}
@@ -317,7 +317,7 @@ Examples:
 					// build final state
 					cs.Final = true
 					cs.IntermediateState = &state.MCPState{
-						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.MCPName),
+						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.CPName),
 					}
 					switchToGardenerShoot(shoot.GetName(), shoot.GetNamespace(), con, cfg, cs)
 					return
@@ -347,9 +347,9 @@ type callState struct {
 	ProjectNamespace        string          `json:"projectNamespace,omitempty"` // namespace that belongs to the project, this is the namespace of the Workspace resource
 	WorkspaceName           string          `json:"workspaceName,omitempty"`
 	WorkspaceNamespace      string          `json:"workspaceNamespace,omitempty"` // namespace that belongs to the workspace, not namespace of the workspace resource itself
-	MCPName                 string          `json:"mcpName,omitempty"`
-	MCPClusterName          string          `json:"mcpClusterName,omitempty"`          // v2 only: name of the Cluster resource belonging to the MCP
-	MCPClusterNamespace     string          `json:"mcpClusterNamespace,omitempty"`     // v2 only: namespace of the Cluster resource belonging to the MCP
+	CPName                  string          `json:"cpName,omitempty"`
+	CPClusterName           string          `json:"cpClusterName,omitempty"`           // v2 only: name of the Cluster resource belonging to the CP
+	CPClusterNamespace      string          `json:"cpClusterNamespace,omitempty"`      // v2 only: namespace of the Cluster resource belonging to the CP
 	OriginalState           *state.MCPState `json:"originalState,omitempty"`           // holds the state of the plugin before any internal calls were made
 	IntermediateState       *state.MCPState `json:"intermediateState,omitempty"`       // holds the current state of the plugin, which might be updated during internal calls
 	Final                   bool            `json:"final"`                             // indicates that the target state has been reached only the provider state needs to be adapted

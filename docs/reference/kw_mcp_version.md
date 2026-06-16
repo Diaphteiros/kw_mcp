@@ -40,5 +40,5 @@ kw_mcp version [flags]
 
 ### SEE ALSO
 
-* [kw_mcp](kw_mcp.md)	 - Interact with an MCP landscape
+* [kw_mcp](kw_mcp.md)	 - Interact with an openMCP landscape
 

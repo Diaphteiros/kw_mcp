@@ -164,7 +164,7 @@ func switchToGardenerShoot(shootName, shootNamespace string, con *libcontext.Con
 	if mcpLandscape.Platform == nil || mcpLandscape.Platform.Gardener == nil {
 		libutils.Fatal(1, "no Gardener configuration found for landscape '%s', unable to determine Gardener landscape\n", cs.LandscapeName)
 	}
-	debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to MCP (%s) '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, mcpVersion(cfg), cs.WorkspaceNamespace, cs.MCPName)
+	debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to ControlPlane (%s) '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, mcpVersion(cfg), cs.WorkspaceNamespace, cs.CPName)
 	if err := con.WriteInternalCall(fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, mcpLandscape.Platform.Gardener.Garden, shootProject, shootName), csData); err != nil {
 		libutils.Fatal(1, "error writing internal call data: %w\n", err)
 	}

@@ -101,7 +101,7 @@ func (f *Focus) Notification() string {
 		return fmt.Sprintf("Switched to workspace '%s' in project '%s' in '%s' landscape.", f.Workspace, f.Project, f.Landscape)
 	case FocusTypeMCP:
 		sb := strings.Builder{}
-		sb.WriteString("Switched to MCP '")
+		sb.WriteString("Switched to ControlPlane '")
 		sb.WriteString(f.Cluster)
 		if f.Workspace != "" {
 			sb.WriteString("' in workspace '")
