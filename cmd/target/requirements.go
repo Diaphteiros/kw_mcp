@@ -364,21 +364,21 @@ func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() err
 						Select()
 					cs.MCPName = mcp.Name
 				case config.MCPVersionV2:
-					mcpList := &mcpv2.ManagedControlPlaneV2List{}
+					mcpList := &mcpv2.ControlPlaneList{}
 					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
 						return fmt.Errorf("unable to list v2 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
 					}
-					slices.SortFunc(mcpList.Items, func(a, b mcpv2.ManagedControlPlaneV2) int {
+					slices.SortFunc(mcpList.Items, func(a, b mcpv2.ControlPlane) int {
 						return -strings.Compare(a.Name, b.Name)
 					})
 					debug.Debug("Prompting for MCP name.")
 					// select MCP mcp
-					_, mcp, _ := selector.New[mcpv2.ManagedControlPlaneV2]().
+					_, mcp, _ := selector.New[mcpv2.ControlPlane]().
 						WithPrompt("Select MCP: ").
 						WithFatalOnAbort("No MCP selected.").
 						WithFatalOnError("error selecting MCP: %w").
 						WithPreview(mcpv2SelectorPreview).
-						From(mcpList.Items, func(elem mcpv2.ManagedControlPlaneV2) string { return elem.Name }).
+						From(mcpList.Items, func(elem mcpv2.ControlPlane) string { return elem.Name }).
 						Select()
 					cs.MCPName = mcp.Name
 				default:
