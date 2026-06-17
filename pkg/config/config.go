@@ -51,6 +51,8 @@ type MCPLandscape struct {
 	// The projects of the onboarding and platform cluster don't have to be listed here.
 	// This is used to determine the landscape when the cluster targeted by the last kubeswitcher call was not chosen via this plugin.
 	AdditionalGardenerProjects []string `json:"additionalGardenerProjects,omitempty"`
+	// PlatformClusterDefaultNamespace is the default namespace that should be set in the kubeconfig when targeting the platform cluster. Defaults to "default" if not set.
+	PlatformClusterDefaultNamespace string `json:"platformClusterDefaultNamespace,omitempty"`
 }
 
 type ClusterAccess struct {
@@ -207,4 +209,11 @@ func LoadFromBytes(data []byte) (*MCPConfig, error) {
 		return nil, fmt.Errorf("error validating kw_mcp config: %w", err)
 	}
 	return cfg, nil
+}
+
+func (l *MCPLandscape) GetPlatformClusterDefaultNamespace() string {
+	if l == nil || l.PlatformClusterDefaultNamespace == "" {
+		return "default"
+	}
+	return l.PlatformClusterDefaultNamespace
 }

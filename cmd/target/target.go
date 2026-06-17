@@ -257,7 +257,7 @@ Examples:
 					return
 				}
 				cs.Final = true
-				targetNamespace := "default"
+				targetNamespace := cfg.Landscapes[cs.LandscapeName].GetPlatformClusterDefaultNamespace()
 				if cpArg == "" {
 					// check original state for ControlPlane information
 					if cs.OriginalState != nil && cs.OriginalState.Focus != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeCP && cs.OriginalState.Focus.ControlPlane != nil {
