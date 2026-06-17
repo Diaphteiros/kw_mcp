@@ -334,7 +334,7 @@ func satisfyWorkspaceNamespaceRequirement(cmd *cobra.Command) func() error {
 
 // cp requirement
 // If satisfied, cs.CPName can be expected to be a non-empty string.
-func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() error {
+func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() error {
 	return func() error {
 		debug.Debug("Satisfying requirement '%s'", reqCP)
 		if cs.CPName == "" {
@@ -391,7 +391,7 @@ func satisfyMCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() err
 		}
 		if cs.CPName == "" && landscapeArg == "" && projectArg == "" && workspaceArg == "" { // only derive CP from state if none of landscape, project, and workspace were explicitly specified
 			debug.Debug("No ControlPlane specified via arguments, trying to retrieve it from state.")
-			if cs.OriginalState != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeMCP {
+			if cs.OriginalState != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeCP {
 				cs.CPName = cs.OriginalState.Focus.Cluster
 			}
 			if cs.CPName != "" {

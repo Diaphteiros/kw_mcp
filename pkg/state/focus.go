@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	ctrlutils "github.com/openmcp-project/controller-utils/pkg/controller"
+	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 )
 
 const (
@@ -18,12 +19,13 @@ const (
 type FocusType string
 
 const (
-	FocusTypeLandscape FocusType = "landscape"
-	FocusTypeProject   FocusType = "project"
-	FocusTypeWorkspace FocusType = "workspace"
-	FocusTypeMCP       FocusType = "mcp"
-	FocusTypeCluster   FocusType = "cluster"
-	FocusTypeUnknown   FocusType = "unknown"
+	FocusTypeLandscape           FocusType = "landscape"
+	FocusTypeProject             FocusType = "project"
+	FocusTypeWorkspace           FocusType = "workspace"
+	FocusTypeCP                  FocusType = "cp"
+	FocusTypeCluster             FocusType = "cluster"
+	FocusTypeCPPlatformNamespace FocusType = "controlplane-namespace"
+	FocusTypeUnknown             FocusType = "unknown"
 )
 
 func (ft FocusType) Short() string {
@@ -36,26 +38,36 @@ func (ft FocusType) Short() string {
 		return "pr"
 	case FocusTypeWorkspace:
 		return "ws"
+	case FocusTypeCPPlatformNamespace:
+		return "cp-ns"
 	default:
 		return string(ft)
 	}
 }
 
 type Focus struct {
-	Landscape string `json:"landscape"`
-	Cluster   string `json:"cluster,omitempty"`
-	Project   string `json:"project,omitempty"`
-	Workspace string `json:"workspace,omitempty"`
+	Landscape    string                     `json:"landscape"`
+	Cluster      string                     `json:"cluster,omitempty"`
+	Project      string                     `json:"project,omitempty"`
+	Workspace    string                     `json:"workspace,omitempty"`
+	ControlPlane *commonapi.ObjectReference `json:"controlPlane,omitempty"`
 }
 
 // NewFocus creates a new focus.
-func NewFocus(landscape, project, workspace, cluster string) *Focus {
-	return &Focus{
+func NewFocus(landscape, project, workspace, cluster, cpNamespace, cpName string) *Focus {
+	f := &Focus{
 		Landscape: landscape,
 		Project:   project,
 		Workspace: workspace,
 		Cluster:   cluster,
 	}
+	if cpNamespace != "" && cpName != "" {
+		f.ControlPlane = &commonapi.ObjectReference{
+			Namespace: cpNamespace,
+			Name:      cpName,
+		}
+	}
+	return f
 }
 
 func NewEmptyFocus() *Focus {
@@ -68,14 +80,17 @@ func NewEmptyFocus() *Focus {
 // - Landscape + Cluster (other): cluster
 // - Landscape + Project: project
 // - Landscape + Project + Workspace: worksapce
-// - Landscape + Project + Workspace + Cluster: mcp
+// - Landscape + Project + Workspace + Cluster: cp
+// - Landscape + Cluster (<platform>) + ControlPlane: cp-ns
 // - Otherwise: unknown
 func (f *Focus) Focus() FocusType {
 	if f == nil || f.Landscape == "" {
 		return FocusTypeUnknown
 	}
 	if f.Project == "" && f.Workspace == "" && f.Cluster != "" {
-		if f.Cluster == MCPClusterOnboarding || f.Cluster == MCPClusterPlatform {
+		if f.Cluster == MCPClusterPlatform && f.ControlPlane != nil {
+			return FocusTypeCPPlatformNamespace
+		} else if f.Cluster == MCPClusterOnboarding || f.Cluster == MCPClusterPlatform {
 			return FocusTypeLandscape
 		}
 		return FocusTypeCluster
@@ -84,7 +99,7 @@ func (f *Focus) Focus() FocusType {
 	} else if f.Project != "" && f.Workspace != "" && f.Cluster == "" {
 		return FocusTypeWorkspace
 	} else if f.Project != "" && f.Workspace != "" && f.Cluster != "" {
-		return FocusTypeMCP
+		return FocusTypeCP
 	}
 	return FocusTypeUnknown
 }
@@ -99,7 +114,9 @@ func (f *Focus) Notification() string {
 		return fmt.Sprintf("Switched to project '%s' in '%s' landscape.", f.Project, f.Landscape)
 	case FocusTypeWorkspace:
 		return fmt.Sprintf("Switched to workspace '%s' in project '%s' in '%s' landscape.", f.Workspace, f.Project, f.Landscape)
-	case FocusTypeMCP:
+	case FocusTypeCPPlatformNamespace:
+		return fmt.Sprintf("Switched to the namespace of ControlPlane '%s/%s' on '%s' landscape's %s cluster.", f.ControlPlane.Namespace, f.ControlPlane.Name, f.Landscape, f.Cluster)
+	case FocusTypeCP:
 		sb := strings.Builder{}
 		sb.WriteString("Switched to ControlPlane '")
 		sb.WriteString(f.Cluster)
@@ -135,31 +152,34 @@ func (f *Focus) Id(pluginName string) string {
 
 func (f *Focus) BackToLandscape() *Focus {
 	fc := f.Focus()
-	if fc != FocusTypeProject && fc != FocusTypeWorkspace && fc != FocusTypeMCP {
+	if fc != FocusTypeProject && fc != FocusTypeWorkspace && fc != FocusTypeCP && fc != FocusTypeCPPlatformNamespace {
 		return f
 	}
 	f.Project = ""
 	f.Workspace = ""
 	f.Cluster = MCPClusterOnboarding
+	f.ControlPlane = nil
 	return f
 }
 
 func (f *Focus) BackToProject() *Focus {
 	fc := f.Focus()
-	if fc != FocusTypeWorkspace && fc != FocusTypeMCP {
+	if fc != FocusTypeWorkspace && fc != FocusTypeCP {
 		return f
 	}
 	f.Workspace = ""
 	f.Cluster = ""
+	f.ControlPlane = nil
 	return f
 }
 
 func (f *Focus) BackToWorkspaceOrProject() *Focus {
 	fc := f.Focus()
-	if fc != FocusTypeMCP {
+	if fc != FocusTypeCP {
 		return f
 	}
 	f.Cluster = ""
+	f.ControlPlane = nil
 	return f
 }
 
@@ -171,6 +191,7 @@ func (f *Focus) ToLandscape(landscape, cluster string) *Focus {
 	f.Cluster = cluster
 	f.Project = ""
 	f.Workspace = ""
+	f.ControlPlane = nil
 	return f
 }
 
@@ -186,17 +207,31 @@ func (f *Focus) ToProject(project string) *Focus {
 	f.Project = project
 	f.Workspace = ""
 	f.Cluster = ""
+	f.ControlPlane = nil
 	return f
 }
 
 func (f *Focus) ToWorkspace(workspace string) *Focus {
 	f.Workspace = workspace
 	f.Cluster = ""
+	f.ControlPlane = nil
 	return f
 }
 
+// this is v1 only
 func (f *Focus) ToMCP(cluster string) *Focus {
 	f.Cluster = cluster
+	f.ControlPlane = nil
+	return f
+}
+
+// this is v2 only
+func (f *Focus) ToControlPlane(cpNamespace, cpName string) *Focus {
+	f.Cluster = cpName
+	f.ControlPlane = &commonapi.ObjectReference{
+		Namespace: cpNamespace,
+		Name:      cpName,
+	}
 	return f
 }
 
@@ -204,6 +239,16 @@ func (f *Focus) ToCluster(cluster string) *Focus {
 	f.Workspace = ""
 	f.Project = ""
 	f.Cluster = cluster
+	f.ControlPlane = nil
+	return f
+}
+
+func (f *Focus) ToControlPlaneNamespace(cpNamespace, cpName string) *Focus {
+	f.ToPlatformCluster(f.Landscape)
+	f.ControlPlane = &commonapi.ObjectReference{
+		Namespace: cpNamespace,
+		Name:      cpName,
+	}
 	return f
 }
 
@@ -246,7 +291,7 @@ func (f *Focus) ClusterHashID() string {
 	case FocusTypeCluster:
 		// f.Cluster contains namespace and name of the cluster, so just hash this
 		return ctrlutils.NameHashSHAKE128Base32(f.Cluster)
-	case FocusTypeMCP:
+	case FocusTypeCP:
 		return ctrlutils.NameHashSHAKE128Base32(f.Project, f.Workspace, f.Cluster)
 	}
 	return ""
@@ -265,9 +310,10 @@ func (f *Focus) DeepCopy() *Focus {
 		return nil
 	}
 	return &Focus{
-		Landscape: f.Landscape,
-		Cluster:   f.Cluster,
-		Project:   f.Project,
-		Workspace: f.Workspace,
+		Landscape:    f.Landscape,
+		Cluster:      f.Cluster,
+		Project:      f.Project,
+		Workspace:    f.Workspace,
+		ControlPlane: f.ControlPlane.DeepCopy(),
 	}
 }

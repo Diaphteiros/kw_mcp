@@ -12,8 +12,8 @@ The following arguments specify the target cluster:
 - --landscape/-l <name>: The MCP landscape to target.
 - --project/-p <name>: The project (project namespace on the onboarding cluster) to target.
 - --workspace/-w <name>: The workspace (workspace namespace on the onboarding cluster) to target.
-- --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --platform and --onboarding.
-- --platform: Target the landscape's platform cluster. Mutually exclusive with --controlplane and --onboarding.
+- --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --onboarding.
+- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding.
 - --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane and --platform.
 
 Targeting a landscape does not have any requirements, except from the landscape being defined in the plugin configuration.
@@ -29,6 +29,7 @@ Targeting a ControlPlane cluster requires landscape, project, and workspace to b
 The '--v1' and '--v2' flags can be used to specify which MCP version to target. If not specified, the default from the config (v2, if not explicitly set) is used.
 
 If '--platform' is specified, the platform cluster of the landscape is targeted. This requires only the landscape to be known.
+v2 only: If '--platform' is specified together with '--controlplane' (or the ControlPlane's name is known from the state), the platform cluster is targeted, with the ControlPlane's namespace set as the default namespace in the kubeconfig.
 
 All of the '--landscape', '--project', '--workspace', and '--controlplane' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
 If the argument is required, but not specified at all, the command fails if the value cannot be recovered from the current kubeswitcher state.

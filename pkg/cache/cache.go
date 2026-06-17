@@ -108,7 +108,7 @@ func (c *cache) getFromMemory(focus *state.Focus) (*clusters.Cluster, error) {
 			debug.Debug("Found cached onboarding cluster in memory for focus '%s'", focus.Json())
 			return landscape.onboarding, nil
 		}
-	case state.FocusTypeMCP:
+	case state.FocusTypeCP:
 		cluster, ok := landscape.mcps[focus.ClusterHashID()]
 		if !ok {
 			debug.Debug("No cached MCP cluster found in memory for focus '%s'", focus.Json())
@@ -194,7 +194,7 @@ func (c *cache) fetch(focus *state.Focus, con libcontext.Context) (*clusters.Clu
 		if kcfgData == nil {
 			return nil, fmt.Errorf("no kubeconfig data found for focus '%s'", focus.Json())
 		}
-	case state.FocusTypeMCP:
+	case state.FocusTypeCP:
 		return nil, fmt.Errorf("todo: fetch mcp kubeconfig")
 	case state.FocusTypeCluster:
 		return nil, fmt.Errorf("todo: fetch cluster kubeconfig")
@@ -232,7 +232,7 @@ func (c *cache) fetch(focus *state.Focus, con libcontext.Context) (*clusters.Clu
 		} else {
 			c.landscapes[focus.Landscape].onboarding = cluster
 		}
-	case state.FocusTypeMCP:
+	case state.FocusTypeCP:
 		c.landscapes[focus.Landscape].mcps[focus.ClusterHashID()] = cluster
 	case state.FocusTypeCluster:
 		c.landscapes[focus.Landscape].clusters[focus.ClusterHashID()] = cluster
@@ -252,7 +252,7 @@ func (c *cache) getPathFor(focus *state.Focus) string {
 		}
 	case state.FocusTypeCluster:
 		return filepath.Join(c.dir, focus.Landscape, "clusters", hash(focus.Cluster)+".kubeconfig")
-	case state.FocusTypeMCP:
+	case state.FocusTypeCP:
 		return filepath.Join(c.dir, focus.Landscape, "mcps", hash(focus.Project, focus.Workspace, focus.Cluster)+".kubeconfig")
 	}
 	return ""
@@ -302,7 +302,7 @@ func (c *cache) Store(src source, dst destination) error {
 		} else {
 			c.landscapes[focus.Landscape].onboarding = cluster
 		}
-	case state.FocusTypeMCP:
+	case state.FocusTypeCP:
 		c.landscapes[focus.Landscape].mcps[focus.ClusterHashID()] = cluster
 	case state.FocusTypeCluster:
 		c.landscapes[focus.Landscape].clusters[focus.ClusterHashID()] = cluster
