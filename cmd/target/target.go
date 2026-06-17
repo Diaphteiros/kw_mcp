@@ -15,6 +15,7 @@ import (
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	mcpv1 "github.com/openmcp-project/mcp-operator/api/core/v1alpha1"
 	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	mcpv2libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
 	"github.com/Diaphteiros/kw/pluginlib/pkg/debug"
@@ -48,8 +49,8 @@ The following arguments specify the target cluster:
 - --landscape/-l <name>: The MCP landscape to target.
 - --project/-p <name>: The project (project namespace on the onboarding cluster) to target.
 - --workspace/-w <name>: The workspace (workspace namespace on the onboarding cluster) to target.
-- --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --platform and --onboarding.
-- --platform: Target the landscape's platform cluster. Mutually exclusive with --controlplane and --onboarding.
+- --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --onboarding.
+- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding.
 - --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane and --platform.
 
 Targeting a landscape does not have any requirements, except from the landscape being defined in the plugin configuration.
@@ -65,6 +66,7 @@ Targeting a ControlPlane cluster requires landscape, project, and workspace to b
 The '--v1' and '--v2' flags can be used to specify which MCP version to target. If not specified, the default from the config (v2, if not explicitly set) is used.
 
 If '--platform' is specified, the platform cluster of the landscape is targeted. This requires only the landscape to be known.
+v2 only: If '--platform' is specified together with '--controlplane' (or the ControlPlane's name is known from the state), the platform cluster is targeted, with the ControlPlane's namespace set as the default namespace in the kubeconfig.
 
 All of the '--landscape', '--project', '--workspace', and '--controlplane' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
 If the argument is required, but not specified at all, the command fails if the value cannot be recovered from the current kubeswitcher state.
@@ -156,7 +158,7 @@ Examples:
 		if mcpVersionLog == "" {
 			mcpVersionLog = fmt.Sprintf("%s (defaulted from config)", cfg.DefaultMCPVersion)
 		}
-		debug.Debug("Command called with the following arguments:\n  --landscape: %s\n  --project: %s\n  --workspace: %s\n  --mcp: %s\n  --onboarding: %v\n  --platform: %v\n  MCP version: %s", landscapeArg, projectArg, workspaceArg, cpArg, onboardingArg, platformArg, mcpVersionLog)
+		debug.Debug("Command called with the following arguments:\n  --landscape: %s\n  --project: %s\n  --workspace: %s\n  --controlplane: %s\n  --onboarding: %v\n  --platform: %v\n  MCP version: %s", landscapeArg, projectArg, workspaceArg, cpArg, onboardingArg, platformArg, mcpVersionLog)
 
 		// setup requirements
 		// has to happen here due to required context
@@ -165,7 +167,7 @@ Examples:
 		req.Register(reqProjectNamespace, satisfyProjectNamespaceRequirement(cmd))
 		req.Register(reqWorkspace, satisfyWorkspaceRequirement(cmd))
 		req.Register(reqWorkspaceNamespace, satisfyWorkspaceNamespaceRequirement(cmd))
-		req.Register(reqCP, satisfyMCPRequirement(cmd, cfg))
+		req.Register(reqCP, satisfyCPRequirement(cmd, cfg))
 		req.Register(reqPlatformCluster, satisfyClusterRequirement(con, cfg, reqPlatformCluster))
 		req.Register(reqOnboardingCluster, satisfyClusterRequirement(con, cfg, reqOnboardingCluster))
 		req.Register(reqCPCluster, satisfyCPClusterRequirement(cmd))
@@ -232,12 +234,47 @@ Examples:
 					debug.Debug("Updated intermediate state focus to '%s'", cs.IntermediateState.Focus.String())
 				}
 			} else if platformArg {
-				// this means that we just need to target the platform cluster
-				cs.Final = true
+				cpName := ""
+				cpNamespace := ""
+				if cpArg != "" {
+					// we need to figure out the ControlPlane's name and namespace
+					debug.Debug("ControlPlane's namespace on platform cluster targeted, identifying ControlPlane name and namespace")
+					if !isMCPVersionV2(cfg) {
+						libutils.Fatal(1, "specifying the '--platform' flag together with '--controlplane' is not supported for MCP version v1\n")
+					}
+					if err := req.Require(reqWorkspaceNamespace, reqCP); err != nil {
+						libutils.Fatal(1, "error determining workspace namespace and/or ControlPlane name: %w\n", err)
+					}
+					if internalCall {
+						return
+					}
+					cpName = cs.CPName
+					cpNamespace = cs.WorkspaceNamespace
+				}
 				if cs.IntermediateState == nil || cs.IntermediateState.Focus.Landscape != cs.LandscapeName || !cs.IntermediateState.Focus.IsPlatformCluster() {
 					debug.Debug("Not targeting the platform cluster at the moment, issuing internal call to switch to it")
 					switchToPlatformCluster(con, cfg, cs)
 					return
+				}
+				cs.Final = true
+				targetNamespace := "default"
+				if cpArg == "" {
+					// check original state for ControlPlane information
+					if cs.OriginalState != nil && cs.OriginalState.Focus != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeCP && cs.OriginalState.Focus.ControlPlane != nil {
+						debug.Debug("Recovered ControlPlane identity from state: '%s/%s'", cs.OriginalState.Focus.ControlPlane.Namespace, cs.OriginalState.Focus.ControlPlane.Name)
+						cpName = cs.OriginalState.Focus.ControlPlane.Name
+						cpNamespace = cs.OriginalState.Focus.ControlPlane.Namespace
+					}
+				}
+				if cpName != "" && cpNamespace != "" {
+					targetNamespace, err = mcpv2libutils.StableMCPNamespace(cpName, cpNamespace)
+					if err != nil {
+						libutils.Fatal(1, "unable to determine ControlPlane namespace on platform cluster: %w", err)
+					}
+					cs.IntermediateState.Focus.ToControlPlaneNamespace(cpNamespace, cpName)
+				}
+				if err := setDefaultNamespaceInKubeconfig(con, targetNamespace); err != nil {
+					libutils.Fatal(1, "error setting default namespace in kubeconfig: %w\n", err)
 				}
 			} else if cpArg != "" {
 				if err := req.Require(reqCP); err != nil {
@@ -267,7 +304,7 @@ Examples:
 					// build final state
 					cs.Final = true
 					cs.IntermediateState = &state.MCPState{
-						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToMCP(cs.CPName),
+						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToControlPlane(cs.WorkspaceNamespace, cs.CPName),
 					}
 					switch p.Spec.ProviderRef.Name {
 					case "gardener":

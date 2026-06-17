@@ -39,8 +39,8 @@ func validateArgs() {
 	if platformArg && onboardingArg {
 		libutils.Fatal(1, "flags '--platform' and '--onboarding' are mutually exclusive\n")
 	}
-	if cpArg != "" && (platformArg || onboardingArg) {
-		libutils.Fatal(1, "flags '--platform' and '--onboarding' cannot be used together with '--controlplane'\n")
+	if cpArg != "" && onboardingArg {
+		libutils.Fatal(1, "flag '--onboarding' cannot be used together with '--controlplane'\n")
 	}
 	if !platformArg && !onboardingArg && cpArg == "" {
 		debug.Debug("Automatically setting '--onboarding' flag because no cluster is targeted.")
