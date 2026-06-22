@@ -5,6 +5,8 @@
 
 This is a plugin for the [kubeswitcher](https://github.com/Diaphteiros/kw) tool that allows to switch between clusters of an [openMCP](https://github.com/openmcp-project/openmcp-operator) landscape.
 
+**This plugin is meant for operators of an openMCP landscape. It requires access to the landscape's internal clusters. If you are an end-user of an openMCP landscape, take a look at [this plugin](https://github.com/Diaphteiros/kw_mcpu) instead.**
+
 ## Installation
 
 Note that this plugin works as a layer on top of the the [Gardener](https://github.com/Diaphteiros/kw_garden) and [kind](https://github.com/Diaphteiros/kw_kind) kubeswitcher plugins. It can only switch between clusters of an openMCP landscape if the corresponding plugin is also installed and configured correctly.
