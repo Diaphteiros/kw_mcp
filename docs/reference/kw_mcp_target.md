@@ -34,7 +34,7 @@ v2 only: If '--platform' is specified together with '--controlplane' (or the Con
 
 If '--workload' is specified, a workload cluster will be targeted. This requires the landscape to be known. This argument works for v2 only.
 The workload cluster can be specified directly, either via '<namespace>/<name>' or just '<name>', but the latter option will fail if there are multiple workload clusters with the same name across all namespaces on the platform cluster.
-If '--workload' is specified without an argument, you will be prompted to select a workload cluster interactively. If a ControlPlane is known, either by being explicitely specified via '--controlplane' or recoverable from the state,
+If '--workload' is specified without an argument, you will be prompted to select a workload cluster interactively. If a ControlPlane is known, either by being explicitly specified via '--controlplane' or recoverable from the state,
 the selection to choose from will contain only workload clusters where the ControlPlane has some workload running on, otherwise all workload clusters will be listed.
 
 All of the '--landscape', '--project', '--workspace', '--controlplane', and '--workload' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
