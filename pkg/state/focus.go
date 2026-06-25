@@ -25,6 +25,7 @@ const (
 	FocusTypeCP                  FocusType = "cp"
 	FocusTypeCluster             FocusType = "cluster"
 	FocusTypeCPPlatformNamespace FocusType = "controlplane-namespace"
+	FocusTypeWorkload            FocusType = "workload"
 	FocusTypeUnknown             FocusType = "unknown"
 )
 
@@ -40,34 +41,20 @@ func (ft FocusType) Short() string {
 		return "ws"
 	case FocusTypeCPPlatformNamespace:
 		return "cp-ns"
+	case FocusTypeWorkload:
+		return "wl"
 	default:
 		return string(ft)
 	}
 }
 
 type Focus struct {
-	Landscape    string                     `json:"landscape"`
-	Cluster      string                     `json:"cluster,omitempty"`
-	Project      string                     `json:"project,omitempty"`
-	Workspace    string                     `json:"workspace,omitempty"`
-	ControlPlane *commonapi.ObjectReference `json:"controlPlane,omitempty"`
-}
-
-// NewFocus creates a new focus.
-func NewFocus(landscape, project, workspace, cluster, cpNamespace, cpName string) *Focus {
-	f := &Focus{
-		Landscape: landscape,
-		Project:   project,
-		Workspace: workspace,
-		Cluster:   cluster,
-	}
-	if cpNamespace != "" && cpName != "" {
-		f.ControlPlane = &commonapi.ObjectReference{
-			Namespace: cpNamespace,
-			Name:      cpName,
-		}
-	}
-	return f
+	Landscape       string                     `json:"landscape"`
+	Cluster         string                     `json:"cluster,omitempty"`
+	Project         string                     `json:"project,omitempty"`
+	Workspace       string                     `json:"workspace,omitempty"`
+	ControlPlane    *commonapi.ObjectReference `json:"controlPlane,omitempty"`
+	WorkloadCluster *commonapi.ObjectReference `json:"workloadCluster,omitempty"`
 }
 
 func NewEmptyFocus() *Focus {
@@ -82,12 +69,18 @@ func NewEmptyFocus() *Focus {
 // - Landscape + Project + Workspace: worksapce
 // - Landscape + Project + Workspace + Cluster: cp
 // - Landscape + Cluster (<platform>) + ControlPlane: cp-ns
+// - Landscape + WorkloadCluster (optionally: + Project + Workspace + Cluster): workload
 // - Otherwise: unknown
 func (f *Focus) Focus() FocusType {
 	if f == nil || f.Landscape == "" {
 		return FocusTypeUnknown
 	}
-	if f.Project == "" && f.Workspace == "" && f.Cluster != "" {
+	if f.Landscape != "" && f.WorkloadCluster != nil {
+		if !((f.Project == "" && f.Workspace == "" && f.Cluster == "") || (f.Project != "" && f.Workspace != "" && f.Cluster != "")) { // nolint:staticcheck // (applying De Morgan's law would make this even harder to understand)
+			return FocusTypeUnknown
+		}
+		return FocusTypeWorkload
+	} else if f.Project == "" && f.Workspace == "" && f.Cluster != "" {
 		if f.Cluster == MCPClusterPlatform && f.ControlPlane != nil {
 			return FocusTypeCPPlatformNamespace
 		} else if f.Cluster == MCPClusterOnboarding || f.Cluster == MCPClusterPlatform {
@@ -116,6 +109,8 @@ func (f *Focus) Notification() string {
 		return fmt.Sprintf("Switched to workspace '%s' in project '%s' in '%s' landscape.", f.Workspace, f.Project, f.Landscape)
 	case FocusTypeCPPlatformNamespace:
 		return fmt.Sprintf("Switched to the namespace of ControlPlane '%s/%s' on '%s' landscape's %s cluster.", f.ControlPlane.Namespace, f.ControlPlane.Name, f.Landscape, f.Cluster)
+	case FocusTypeWorkload:
+		return fmt.Sprintf("Switched to workload cluster '%s/%s' in '%s' landscape.", f.WorkloadCluster.Namespace, f.WorkloadCluster.Name, f.Landscape)
 	case FocusTypeCP:
 		sb := strings.Builder{}
 		sb.WriteString("Switched to ControlPlane '")
@@ -137,17 +132,24 @@ func (f *Focus) Notification() string {
 func (f *Focus) Id(pluginName string) string {
 	prMod := ""
 	wsMod := ""
-	if f.Project != "" {
-		prMod = "/" + f.Project
-		if f.Workspace != "" {
-			wsMod = "/" + f.Workspace
-		}
-	}
 	cMod := ""
-	if f.Cluster != "" {
-		cMod = "/" + f.Cluster
+	if f.Focus() != FocusTypeWorkload {
+		if f.Project != "" {
+			prMod = f.Project
+			if f.Workspace != "" {
+				wsMod = "/" + f.Workspace
+			}
+		}
+		if f.Cluster != "" {
+			if wsMod != "" {
+				cMod = "/"
+			}
+			cMod += f.Cluster
+		}
+	} else {
+		cMod = f.WorkloadCluster.Namespace + "/" + f.WorkloadCluster.Name
 	}
-	return fmt.Sprintf("%s:%s|%s%s%s%s", pluginName, f.Focus().Short(), f.Landscape, prMod, wsMod, cMod)
+	return fmt.Sprintf("%s:%s[%s]%s%s%s", pluginName, f.Focus().Short(), f.Landscape, prMod, wsMod, cMod)
 }
 
 func (f *Focus) BackToLandscape() *Focus {
@@ -192,6 +194,7 @@ func (f *Focus) ToLandscape(landscape, cluster string) *Focus {
 	f.Project = ""
 	f.Workspace = ""
 	f.ControlPlane = nil
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -208,6 +211,7 @@ func (f *Focus) ToProject(project string) *Focus {
 	f.Workspace = ""
 	f.Cluster = ""
 	f.ControlPlane = nil
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -215,6 +219,7 @@ func (f *Focus) ToWorkspace(workspace string) *Focus {
 	f.Workspace = workspace
 	f.Cluster = ""
 	f.ControlPlane = nil
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -222,6 +227,7 @@ func (f *Focus) ToWorkspace(workspace string) *Focus {
 func (f *Focus) ToMCP(cluster string) *Focus {
 	f.Cluster = cluster
 	f.ControlPlane = nil
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -232,6 +238,7 @@ func (f *Focus) ToControlPlane(cpNamespace, cpName string) *Focus {
 		Namespace: cpNamespace,
 		Name:      cpName,
 	}
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -240,6 +247,7 @@ func (f *Focus) ToCluster(cluster string) *Focus {
 	f.Project = ""
 	f.Cluster = cluster
 	f.ControlPlane = nil
+	f.WorkloadCluster = nil
 	return f
 }
 
@@ -248,6 +256,18 @@ func (f *Focus) ToControlPlaneNamespace(cpNamespace, cpName string) *Focus {
 	f.ControlPlane = &commonapi.ObjectReference{
 		Namespace: cpNamespace,
 		Name:      cpName,
+	}
+	return f
+}
+
+func (f *Focus) ToWorkloadCluster(workloadClusterNamespace, workloadClusterName string) *Focus {
+	f.Workspace = ""
+	f.Project = ""
+	f.Cluster = ""
+	f.ControlPlane = nil
+	f.WorkloadCluster = &commonapi.ObjectReference{
+		Namespace: workloadClusterNamespace,
+		Name:      workloadClusterName,
 	}
 	return f
 }
@@ -310,10 +330,11 @@ func (f *Focus) DeepCopy() *Focus {
 		return nil
 	}
 	return &Focus{
-		Landscape:    f.Landscape,
-		Cluster:      f.Cluster,
-		Project:      f.Project,
-		Workspace:    f.Workspace,
-		ControlPlane: f.ControlPlane.DeepCopy(),
+		Landscape:       f.Landscape,
+		Cluster:         f.Cluster,
+		Project:         f.Project,
+		Workspace:       f.Workspace,
+		ControlPlane:    f.ControlPlane.DeepCopy(),
+		WorkloadCluster: f.WorkloadCluster.DeepCopy(),
 	}
 }

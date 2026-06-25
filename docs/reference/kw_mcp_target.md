@@ -13,8 +13,9 @@ The following arguments specify the target cluster:
 - --project/-p <name>: The project (project namespace on the onboarding cluster) to target.
 - --workspace/-w <name>: The workspace (workspace namespace on the onboarding cluster) to target.
 - --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --onboarding.
-- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding.
-- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane and --platform.
+- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding and --workload.
+- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane, --platform, and --workload.
+- --workload/-k <name>: The workload cluster to target (either as <namespace>/<name> or just <name>, if the name is unique). Mutually exclusive with --onboarding and --platform. v2 only.
 
 Targeting a landscape does not have any requirements, except from the landscape being defined in the plugin configuration.
 If neither --platform nor --onboarding is specified, the onboarding cluster is targeted by default.
@@ -31,7 +32,12 @@ The '--v1' and '--v2' flags can be used to specify which MCP version to target. 
 If '--platform' is specified, the platform cluster of the landscape is targeted. This requires only the landscape to be known.
 v2 only: If '--platform' is specified together with '--controlplane' (or the ControlPlane's name is known from the state), the platform cluster is targeted, with the ControlPlane's namespace set as the default namespace in the kubeconfig.
 
-All of the '--landscape', '--project', '--workspace', and '--controlplane' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
+If '--workload' is specified, a workload cluster will be targeted. This requires the landscape to be known. This argument works for v2 only.
+The workload cluster can be specified directly, either via '<namespace>/<name>' or just '<name>', but the latter option will fail if there are multiple workload clusters with the same name across all namespaces on the platform cluster.
+If '--workload' is specified without an argument, you will be prompted to select a workload cluster interactively. If a ControlPlane is known, either by being explicitly specified via '--controlplane' or recoverable from the state,
+the selection to choose from will contain only workload clusters where the ControlPlane has some workload running on, otherwise all workload clusters will be listed.
+
+All of the '--landscape', '--project', '--workspace', '--controlplane', and '--workload' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
 If the argument is required, but not specified at all, the command fails if the value cannot be recovered from the current kubeswitcher state.
 
 Examples:
@@ -70,6 +76,7 @@ kw_mcp target [flags]
   -p, --project string        The MCP project to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.
       --v1                    Use MCP version v1 for this command. Overrides the default MCP version specified in the config.
       --v2                    Use MCP version v2 for this command. Overrides the default MCP version specified in the config.
+  -k, --workload string       The workload cluster to target (either as <namespace>/<name> or just <name>, if the name is unique). Will be prompted for if specified without an argument. Might be recovered from state, if not specified. v2 only.
   -w, --workspace string      The MCP workspace to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.
 ```
 

@@ -1,12 +1,14 @@
 package target
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
@@ -167,5 +169,51 @@ func switchToGardenerShoot(shootName, shootNamespace string, con *libcontext.Con
 	debug.Debug("Targeting Gardener shoot '%s/%s/%s' belonging to ControlPlane (%s) '%s/%s'", mcpLandscape.Platform.Gardener.Garden, shootProject, shootName, mcpVersion(cfg), cs.WorkspaceNamespace, cs.CPName)
 	if err := con.WriteInternalCall(fmt.Sprintf("%s target --garden %s --project %s --shoot %s", cfg.GardenPluginName, mcpLandscape.Platform.Gardener.Garden, shootProject, shootName), csData); err != nil {
 		libutils.Fatal(1, "error writing internal call data: %w\n", err)
+	}
+}
+
+func switchToClusterByName(ctx context.Context, clusterNamespace, clusterName string, con *libcontext.Context, cfg *config.MCPConfig, cs *callState) {
+	cluster := &mcpv2cluster.Cluster{}
+	cluster.Name = clusterName
+	cluster.Namespace = clusterNamespace
+	if err := platformCluster.Client().Get(ctx, client.ObjectKeyFromObject(cluster), cluster); err != nil {
+		libutils.Fatal(1, "unable to get Cluster '%s/%s' on platform cluster: %w\n", cluster.Namespace, cluster.Name, err)
+	}
+
+	switchToCluster(ctx, cluster, "", con, cfg, cs)
+}
+
+func switchToCluster(ctx context.Context, cluster *mcpv2cluster.Cluster, provider string, con *libcontext.Context, cfg *config.MCPConfig, cs *callState) {
+	if provider == "" {
+		// try to identify the corresponding ClusterProvider
+		p := &mcpv2cluster.ClusterProfile{}
+		p.Name = cluster.Spec.Profile
+		if err := platformCluster.Client().Get(ctx, client.ObjectKeyFromObject(p), p); err != nil {
+			libutils.Fatal(1, "unable to get ClusterProfile '%s' on platform cluster: %w\n", p.Name, err)
+		}
+		provider = p.Spec.ProviderRef.Name
+	}
+
+	switch provider {
+	case "gardener":
+		shootName, shootNamespace, err := getGardenerShootName(cluster)
+		if err != nil {
+			libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w\n", cluster.Namespace, cluster.Name, err)
+		}
+		switchToGardenerShoot(shootName, shootNamespace, con, cfg, cs)
+		return
+	case "kind":
+		csData, err := json.Marshal(cs)
+		if err != nil {
+			libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
+		}
+		kindClusterName := getKindClusterName(cluster)
+		debug.Debug("Targeting kind cluster '%s' belonging to CP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.CPName)
+		if err := con.WriteInternalCall(fmt.Sprintf("%s %s", cfg.KindPluginName, kindClusterName), csData); err != nil {
+			libutils.Fatal(1, "error writing internal call data: %w\n", err)
+		}
+		return
+	default:
+		libutils.Fatal(1, "unsupported provider '%s' for Cluster '%s/%s'\n", provider, cluster.Namespace, cluster.Name)
 	}
 }

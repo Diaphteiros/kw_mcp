@@ -7,6 +7,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	mcpv1 "github.com/openmcp-project/mcp-operator/api/core/v1alpha1"
+	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
 	mcpv2 "github.com/openmcp-project/openmcp-operator/api/core/v2alpha1"
 	pwv1alpha1 "github.com/openmcp-project/project-workspace-operator/api/core/v1alpha1"
 )
@@ -174,6 +175,49 @@ func mcpv2SelectorPreview(mcp mcpv2.ControlPlane, _, _ int) string {
 	fmt.Fprintf(&sb, "Name: %s\n", mcp.Name)
 
 	fmt.Fprintf(&sb, "\nPhase: %s\n", mcp.Status.Phase)
+
+	return sb.String()
+}
+
+func clusterSelectorPreview(cluster *mcpv2cluster.Cluster, _, _ int) string {
+	sb := strings.Builder{}
+	fmt.Fprintf(&sb, "Name: %s\n", cluster.Name)
+	fmt.Fprintf(&sb, "Namespace: %s\n", cluster.Namespace)
+
+	k8sVersion, ok := cluster.Labels[mcpv2cluster.K8sVersionLabel]
+	if !ok {
+		k8sVersion = "<unknown>"
+	}
+	fmt.Fprintf(&sb, "\nk8s Version: %s\n", k8sVersion)
+	provider, ok := cluster.Labels[mcpv2cluster.ProviderLabel]
+	if !ok {
+		provider = "<unknown>"
+	}
+	fmt.Fprintf(&sb, "Provider: %s\n", provider)
+	fmt.Fprintf(&sb, "Profile: %s\n", cluster.Spec.Profile)
+
+	sb.WriteString("\nPurposes:")
+	if len(cluster.Spec.Purposes) == 0 {
+		sb.WriteString(" None\n")
+	} else {
+		sb.WriteString("\n")
+		for _, purpose := range cluster.Spec.Purposes {
+			fmt.Fprintf(&sb, "- %s\n", purpose)
+		}
+	}
+
+	fmt.Fprintf(&sb, "\nTenancy: %s\n", cluster.Spec.Tenancy)
+	if cluster.Spec.Tenancy == mcpv2cluster.TENANCY_SHARED {
+		rc := 0
+		for _, fin := range cluster.Finalizers {
+			if strings.HasPrefix(fin, mcpv2cluster.RequestFinalizerOnClusterPrefix) {
+				rc++
+			}
+		}
+		fmt.Fprintf(&sb, "Request Count: %d\n", rc)
+	}
+
+	fmt.Fprintf(&sb, "\nPhase: %s\n", cluster.Status.Phase)
 
 	return sb.String()
 }
