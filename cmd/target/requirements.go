@@ -15,6 +15,7 @@ import (
 	mcpv1 "github.com/openmcp-project/mcp-operator/api/core/v1alpha1"
 	mcpv1install "github.com/openmcp-project/mcp-operator/api/install"
 	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	mcpv2 "github.com/openmcp-project/openmcp-operator/api/core/v2alpha1"
 	mcpv2install "github.com/openmcp-project/openmcp-operator/api/install"
 	mcpv2libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
@@ -40,6 +41,7 @@ const (
 	reqPlatformCluster    = "platformCluster"
 	reqProjectNamespace   = "projectNamespace"
 	reqWorkspaceNamespace = "workspaceNamespace"
+	reqWorkloadCluster    = "workloadCluster"
 )
 
 // This file provides satisfyer methods for the requirements logic from the utils library.
@@ -59,15 +61,13 @@ func satisfyLandscapeRequirement(cfg *config.MCPConfig) func() error {
 			if landscapeArg == PromptForArg {
 				debug.Debug("Prompting for landscape name.")
 				landscapeList := sets.KeySet(cfg.Landscapes).UnsortedList()
-				slices.SortFunc(landscapeList, func(a, b string) int {
-					return -strings.Compare(a, b)
-				})
 				// select MCP landscape
 				_, cs.LandscapeName, _ = selector.New[string]().
 					WithPrompt("Select MCP landscape: ").
 					WithFatalOnAbort("No landscape selected.").
 					WithFatalOnError("error selecting landscape: %w").
 					From(landscapeList, func(elem string) string { return elem }).
+					WithSortByKey(selector.Invert).
 					Select()
 				debug.Debug("Selected Landscape: %s", cs.LandscapeName)
 			} else {
@@ -90,7 +90,7 @@ func satisfyLandscapeRequirement(cfg *config.MCPConfig) func() error {
 }
 
 // helper for onboarding/platform cluster requirement
-// If satisfied, the platformCluster variable can be expected to be ready for use.
+// If satisfied, the platformCluster or onboardingCluster variable can be expected to be ready for use.
 func satisfyClusterRequirement(con *libcontext.Context, cfg *config.MCPConfig, req string) func() error {
 	return func() error {
 		debug.Debug("Satisfying requirement '%s'", req)
@@ -203,9 +203,6 @@ func satisfyProjectRequirement(cmd *cobra.Command) func() error {
 				if err := onboardingCluster.Client().List(cmd.Context(), projectList); err != nil {
 					return fmt.Errorf("unable to list projects on onboarding cluster: %w", err)
 				}
-				slices.SortFunc(projectList.Items, func(a, b pwv1alpha1.Project) int {
-					return -strings.Compare(a.Name, b.Name)
-				})
 				debug.Debug("Prompting for project name.")
 				// select MCP project
 				_, project, _ := selector.New[pwv1alpha1.Project]().
@@ -214,6 +211,7 @@ func satisfyProjectRequirement(cmd *cobra.Command) func() error {
 					WithFatalOnError("error selecting project: %w").
 					WithPreview(projectSelectorPreview).
 					From(projectList.Items, func(elem pwv1alpha1.Project) string { return elem.Name }).
+					WithSortByKey(selector.Invert).
 					Select()
 				cs.ProjectName = project.Name
 				debug.Debug("Selected Project: %s", cs.ProjectName)
@@ -275,9 +273,6 @@ func satisfyWorkspaceRequirement(cmd *cobra.Command) func() error {
 				if err := onboardingCluster.Client().List(cmd.Context(), workspaceList, client.InNamespace(cs.ProjectNamespace)); err != nil {
 					return fmt.Errorf("unable to list workspaces in namespace '%s' on onboarding cluster: %w", cs.ProjectNamespace, err)
 				}
-				slices.SortFunc(workspaceList.Items, func(a, b pwv1alpha1.Workspace) int {
-					return -strings.Compare(a.Name, b.Name)
-				})
 				debug.Debug("Prompting for workspace name.")
 				// select MCP workspace
 				_, workspace, _ := selector.New[pwv1alpha1.Workspace]().
@@ -286,6 +281,7 @@ func satisfyWorkspaceRequirement(cmd *cobra.Command) func() error {
 					WithFatalOnError("error selecting workspace: %w").
 					WithPreview(workspaceSelectorPreview).
 					From(workspaceList.Items, func(elem pwv1alpha1.Workspace) string { return elem.Name }).
+					WithSortByKey(selector.Invert).
 					Select()
 				cs.WorkspaceName = workspace.Name
 				debug.Debug("Selected Workspace: %s", cs.WorkspaceName)
@@ -350,9 +346,6 @@ func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() erro
 					if err := onboardingCluster.Client().List(cmd.Context(), mcpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
 						return fmt.Errorf("unable to list v1 MCPs in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
 					}
-					slices.SortFunc(mcpList.Items, func(a, b mcpv1.ManagedControlPlane) int {
-						return -strings.Compare(a.Name, b.Name)
-					})
 					debug.Debug("Prompting for ControlPlane name.")
 					// select MCP mcp
 					_, mcp, _ := selector.New[mcpv1.ManagedControlPlane]().
@@ -361,6 +354,7 @@ func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() erro
 						WithFatalOnError("error selecting MCP: %w").
 						WithPreview(mcpv1SelectorPreview).
 						From(mcpList.Items, func(elem mcpv1.ManagedControlPlane) string { return elem.Name }).
+						WithSortByKey(selector.Invert).
 						Select()
 					cs.CPName = mcp.Name
 				case config.MCPVersionV2:
@@ -368,9 +362,6 @@ func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() erro
 					if err := onboardingCluster.Client().List(cmd.Context(), cpList, client.InNamespace(cs.WorkspaceNamespace)); err != nil {
 						return fmt.Errorf("unable to list v2 ControlPlanes in namespace '%s' on onboarding cluster: %w", cs.WorkspaceNamespace, err)
 					}
-					slices.SortFunc(cpList.Items, func(a, b mcpv2.ControlPlane) int {
-						return -strings.Compare(a.Name, b.Name)
-					})
 					debug.Debug("Prompting for ControlPlane name.")
 					// select ControlPlane
 					_, cp, _ := selector.New[mcpv2.ControlPlane]().
@@ -379,6 +370,7 @@ func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() erro
 						WithFatalOnError("error selecting ControlPlane: %w").
 						WithPreview(mcpv2SelectorPreview).
 						From(cpList.Items, func(elem mcpv2.ControlPlane) string { return elem.Name }).
+						WithSortByKey(selector.Invert).
 						Select()
 					cs.CPName = cp.Name
 				default:
@@ -405,7 +397,7 @@ func satisfyCPRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() erro
 }
 
 // ControlPlane cluster requirement
-// If satisfied, cs.MCPClusterName and cs.MCPClusterNamespace can be expected to be non-empty strings containing the name and namespace of the Cluster resource belonging to the targeted ControlPlane.
+// If satisfied, cs.CPClusterName and cs.CPClusterNamespace can be expected to be non-empty strings containing the name and namespace of the Cluster resource belonging to the targeted ControlPlane.
 // Note that this requirement is for v2 only, as v1 ControlPlanes do not have a Cluster resource.
 func satisfyCPClusterRequirement(cmd *cobra.Command) func() error {
 	return func() error {
@@ -431,6 +423,120 @@ func satisfyCPClusterRequirement(cmd *cobra.Command) func() error {
 		cs.CPClusterName = cr.Status.Cluster.Name
 		cs.CPClusterNamespace = cr.Status.Cluster.Namespace
 		debug.Debug("Identified Cluster '%s/%s' belonging to ControlPlane '%s/%s'", cs.CPClusterNamespace, cs.CPClusterName, cs.WorkspaceNamespace, cs.CPName)
+		return nil
+	}
+}
+
+// workload cluster requirement
+// If satisfied, cs.WorkloadCluster can be expected to be non-nil and contain the name and namespace of the targeted workload cluster.
+func satisfyWorkloadClusterRequirement(cmd *cobra.Command, cfg *config.MCPConfig) func() error {
+	return func() error {
+		debug.Debug("Satisfying requirement '%s'", reqWorkloadCluster)
+		reqs := []string{reqLandscape, reqPlatformCluster}
+		if workloadArg == PromptForArg && (cpArg != "" || (cs.OriginalState != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeCP && landscapeArg == "" && projectArg == "" && workspaceArg == "")) {
+			// If either a controlplane has been specified via arguments, or the original state was focused on one and none of landscape, project, or workspace were specified via arguments,
+			// we can assume that the user wants to target a workload cluster belonging to that controlplane, so we add the cpCluster requirement.
+			reqs = append(reqs, reqCPCluster)
+		}
+		if abort, err := handlePrerequisites(reqWorkloadCluster, reqs...); abort {
+			return err
+		}
+		if cs.WorkloadCluster == nil {
+			if workloadArg == PromptForArg {
+				listOpts := []client.ListOption{client.MatchingFields{
+					"spec.purpose": cfg.Landscapes[cs.LandscapeName].WorkloadClusterPurpose,
+				}}
+				logMod := ""
+				if cs.CPClusterNamespace != "" {
+					listOpts = append(listOpts, client.InNamespace(cs.CPClusterNamespace))
+					logMod = fmt.Sprintf(" in namespace '%s'", cs.CPClusterNamespace)
+				}
+				debug.Debug("Listing workload cluster requests%s", logMod)
+				crList := &mcpv2cluster.ClusterRequestList{}
+				if err := platformCluster.Client().List(cmd.Context(), crList, listOpts...); err != nil {
+					return fmt.Errorf("unable to list workload cluster requests%s: %w", logMod, err)
+				}
+				debug.Debug("Retrieved %d workload cluster requests, fetching corresponding workload clusters", len(crList.Items))
+				alreadyFetched := sets.New[string]()
+				clusters := []*mcpv2cluster.Cluster{}
+				for _, cr := range crList.Items {
+					if cr.Status.Cluster == nil {
+						debug.Debug("Skipping ClusterRequest '%s/%s' as it does not have 'status.cluster' set", cr.Namespace, cr.Name)
+						continue
+					}
+					cKey := fmt.Sprintf("%s/%s", cr.Status.Cluster.Namespace, cr.Status.Cluster.Name)
+					if alreadyFetched.Has(cKey) {
+						continue
+					}
+					cluster := &mcpv2cluster.Cluster{}
+					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKey{
+						Namespace: cr.Status.Cluster.Namespace,
+						Name:      cr.Status.Cluster.Name,
+					}, cluster); err != nil {
+						return fmt.Errorf("unable to get workload cluster '%s/%s' for ClusterRequest '%s/%s': %w", cr.Status.Cluster.Namespace, cr.Status.Cluster.Name, cr.Namespace, cr.Name, err)
+					}
+					alreadyFetched.Insert(cKey)
+					clusters = append(clusters, cluster)
+				}
+				_, cluster, _ := selector.New[*mcpv2cluster.Cluster]().
+					WithPrompt("Select Workload Cluster: ").
+					WithFatalOnAbort("No Workload Cluster selected.").
+					WithFatalOnError("error selecting Workload Cluster: %w").
+					WithPreview(clusterSelectorPreview).
+					From(clusters, func(elem *mcpv2cluster.Cluster) string { return elem.Name }).
+					WithSortByKey(selector.Invert).
+					Select()
+				cs.WorkloadCluster = &commonapi.ObjectReference{
+					Namespace: cluster.Namespace,
+					Name:      cluster.Name,
+				}
+				debug.Debug("Selected Workload Cluster: %s/%s", cs.WorkloadCluster.Namespace, cs.WorkloadCluster.Name)
+			} else {
+				wlArgSplit := strings.SplitN(workloadArg, "/", 2)
+				if len(wlArgSplit) == 1 {
+					// only name specified, we need to find the namespace
+					debug.Debug("Only workload cluster name '%s' given, listing workload clusters to identify correct one", wlArgSplit[0])
+					clusterList := &mcpv2cluster.ClusterList{}
+					if err := platformCluster.Client().List(cmd.Context(), clusterList); err != nil {
+						return fmt.Errorf("unable to list workload clusters: %w", err)
+					}
+					// filter for those with workload purpose and the specified name
+					clusters := []*mcpv2cluster.Cluster{}
+					for _, c := range clusterList.Items {
+						if c.Name == wlArgSplit[0] && slices.Contains(c.Spec.Purposes, cfg.Landscapes[cs.LandscapeName].WorkloadClusterPurpose) {
+							clusters = append(clusters, &c)
+						}
+					}
+					if len(clusters) == 0 {
+						return fmt.Errorf("no workload cluster with name '%s' and purpose '%s' found", wlArgSplit[0], cfg.Landscapes[cs.LandscapeName].WorkloadClusterPurpose)
+					}
+					if len(clusters) > 1 {
+						return fmt.Errorf("multiple workload clusters with name '%s' and purpose '%s' found, please specify the namespace as well (as '<namespace>/<name>')", wlArgSplit[0], cfg.Landscapes[cs.LandscapeName].WorkloadClusterPurpose)
+					}
+					cs.WorkloadCluster = &commonapi.ObjectReference{
+						Namespace: clusters[0].Namespace,
+						Name:      clusters[0].Name,
+					}
+				} else {
+					// both namespace and name specified
+					cs.WorkloadCluster = &commonapi.ObjectReference{
+						Namespace: wlArgSplit[0],
+						Name:      wlArgSplit[1],
+					}
+				}
+			}
+		}
+		if cs.WorkloadCluster == nil && landscapeArg == "" && projectArg == "" && workspaceArg == "" && cpArg == "" { // only derive workload cluster from state if none of landscape, project, workspace, and controlplane were explicitly specified
+			debug.Debug("No workload cluster specified via arguments, trying to retrieve it from state.")
+			if cs.OriginalState != nil && cs.OriginalState.Focus.Focus() == state.FocusTypeWorkload {
+				cs.WorkloadCluster = cs.OriginalState.Focus.WorkloadCluster.DeepCopy()
+			}
+			if cs.WorkloadCluster != nil {
+				debug.Debug("Identified Workload Cluster '%s/%s' from state.", cs.WorkloadCluster.Namespace, cs.WorkloadCluster.Name)
+			} else {
+				return fmt.Errorf("unable to infer Workload Cluster from previous command's state, specify it via '--workload' flag")
+			}
+		}
 		return nil
 	}
 }

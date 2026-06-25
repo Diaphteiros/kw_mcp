@@ -53,6 +53,8 @@ type MCPLandscape struct {
 	AdditionalGardenerProjects []string `json:"additionalGardenerProjects,omitempty"`
 	// PlatformClusterDefaultNamespace is the default namespace that should be set in the kubeconfig when targeting the platform cluster. Defaults to "default" if not set.
 	PlatformClusterDefaultNamespace string `json:"platformClusterDefaultNamespace,omitempty"`
+	// WorkloadClusterPurpose is the purpose used for workload clusters in this landscape. Defaults to "workload" if not set.
+	WorkloadClusterPurpose string `json:"workloadClusterPurpose,omitempty"`
 }
 
 type ClusterAccess struct {
@@ -129,6 +131,9 @@ func (c *MCPConfig) Default() {
 			for _, project := range landscape.AdditionalGardenerProjects {
 				c.GardenerProjectsSetPerLandscape[name].Insert(project)
 			}
+		}
+		if landscape.WorkloadClusterPurpose == "" {
+			landscape.WorkloadClusterPurpose = "workload"
 		}
 	}
 }

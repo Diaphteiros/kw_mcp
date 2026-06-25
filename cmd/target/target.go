@@ -14,7 +14,7 @@ import (
 
 	"github.com/openmcp-project/controller-utils/pkg/clusters"
 	mcpv1 "github.com/openmcp-project/mcp-operator/api/core/v1alpha1"
-	mcpv2cluster "github.com/openmcp-project/openmcp-operator/api/clusters/v1alpha1"
+	commonapi "github.com/openmcp-project/openmcp-operator/api/common"
 	mcpv2libutils "github.com/openmcp-project/openmcp-operator/lib/utils"
 
 	libcontext "github.com/Diaphteiros/kw/pluginlib/pkg/context"
@@ -50,8 +50,9 @@ The following arguments specify the target cluster:
 - --project/-p <name>: The project (project namespace on the onboarding cluster) to target.
 - --workspace/-w <name>: The workspace (workspace namespace on the onboarding cluster) to target.
 - --controlplane/-c <name>: The ControlPlane cluster to target. Mutually exclusive with --onboarding.
-- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding.
-- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane and --platform.
+- --platform: Target the landscape's platform cluster. Mutually exclusive with --onboarding and --workload.
+- --onboarding: Target the landscape's onboarding cluster. Mutually exclusive with --controlplane, --platform, and --workload.
+- --workload/-k <name>: The workload cluster to target (either as <namespace>/<name> or just <name>, if the name is unique). Mutually exclusive with --onboarding and --platform. v2 only.
 
 Targeting a landscape does not have any requirements, except from the landscape being defined in the plugin configuration.
 If neither --platform nor --onboarding is specified, the onboarding cluster is targeted by default.
@@ -68,7 +69,12 @@ The '--v1' and '--v2' flags can be used to specify which MCP version to target. 
 If '--platform' is specified, the platform cluster of the landscape is targeted. This requires only the landscape to be known.
 v2 only: If '--platform' is specified together with '--controlplane' (or the ControlPlane's name is known from the state), the platform cluster is targeted, with the ControlPlane's namespace set as the default namespace in the kubeconfig.
 
-All of the '--landscape', '--project', '--workspace', and '--controlplane' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
+If '--workload' is specified, a workload cluster will be targeted. This requires the landscape to be known. This argument works for v2 only.
+The workload cluster can be specified directly, either via '<namespace>/<name>' or just '<name>', but the latter option will fail if there are multiple workload clusters with the same name across all namespaces on the platform cluster.
+If '--workload' is specified without an argument, you will be prompted to select a workload cluster interactively. If a ControlPlane is known, either by being explicitly specified via '--controlplane' or recoverable from the state,
+the selection to choose from will contain only workload clusters where the ControlPlane has some workload running on, otherwise all workload clusters will be listed.
+
+All of the '--landscape', '--project', '--workspace', '--controlplane', and '--workload' flags can be specified with or without an argument. If specified without, you will be prompted to select the value interactively.
 If the argument is required, but not specified at all, the command fails if the value cannot be recovered from the current kubeswitcher state.
 
 Examples:
@@ -171,6 +177,7 @@ Examples:
 		req.Register(reqPlatformCluster, satisfyClusterRequirement(con, cfg, reqPlatformCluster))
 		req.Register(reqOnboardingCluster, satisfyClusterRequirement(con, cfg, reqOnboardingCluster))
 		req.Register(reqCPCluster, satisfyCPClusterRequirement(cmd))
+		req.Register(reqWorkloadCluster, satisfyWorkloadClusterRequirement(cmd, cfg))
 
 		if !cs.Final {
 			// If cs.Final is true, this means that we returned from an internal call which has set the kubeconfig to the correct cluster and we just need to write the metadata (provider state, etc.).
@@ -276,6 +283,23 @@ Examples:
 				if err := setDefaultNamespaceInKubeconfig(con, targetNamespace); err != nil {
 					libutils.Fatal(1, "error setting default namespace in kubeconfig: %w\n", err)
 				}
+			} else if workloadArg != "" {
+				if !isMCPVersionV2(cfg) {
+					libutils.Fatal(1, "workload clusters only exist in MCP version v2\n")
+				}
+				if err := req.Require(reqWorkloadCluster); err != nil {
+					libutils.Fatal(1, "error determining Workload Cluster: %w\n", err)
+				}
+				if internalCall {
+					return
+				}
+				// build final state
+				cs.Final = true
+				cs.IntermediateState = &state.MCPState{
+					Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToWorkloadCluster(cs.WorkloadCluster.Namespace, cs.WorkloadCluster.Name),
+				}
+				// switch to cluster
+				switchToClusterByName(cmd.Context(), cs.WorkloadCluster.Namespace, cs.WorkloadCluster.Name, con, cfg, cs)
 			} else if cpArg != "" {
 				if err := req.Require(reqCP); err != nil {
 					libutils.Fatal(1, "error determining CP: %w\n", err)
@@ -288,46 +312,13 @@ Examples:
 					if internalCall {
 						return
 					}
-					// fetch cluster
-					c := &mcpv2cluster.Cluster{}
-					c.Name = cs.CPClusterName
-					c.Namespace = cs.CPClusterNamespace
-					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(c), c); err != nil {
-						libutils.Fatal(1, "unable to get Cluster '%s/%s' on platform cluster: %w\n", c.Namespace, c.Name, err)
-					}
-					// try to identify the corresponding ClusterProvider
-					p := &mcpv2cluster.ClusterProfile{}
-					p.Name = c.Spec.Profile
-					if err := platformCluster.Client().Get(cmd.Context(), client.ObjectKeyFromObject(p), p); err != nil {
-						libutils.Fatal(1, "unable to get ClusterProfile '%s' on platform cluster: %w\n", p.Name, err)
-					}
 					// build final state
 					cs.Final = true
 					cs.IntermediateState = &state.MCPState{
 						Focus: state.NewEmptyFocus().ToLandscape(cs.LandscapeName, "").ToProject(cs.ProjectName).ToWorkspace(cs.WorkspaceName).ToControlPlane(cs.WorkspaceNamespace, cs.CPName),
 					}
-					switch p.Spec.ProviderRef.Name {
-					case "gardener":
-						shootName, shootNamespace, err := getGardenerShootName(c)
-						if err != nil {
-							libutils.Fatal(1, "error getting gardener shoot name from Cluster '%s/%s': %w\n", c.Namespace, c.Name, err)
-						}
-						switchToGardenerShoot(shootName, shootNamespace, con, cfg, cs)
-						return
-					case "kind":
-						csData, err := json.Marshal(cs)
-						if err != nil {
-							libutils.Fatal(1, "error marshalling call state for internal call: %w\n", err)
-						}
-						kindClusterName := getKindClusterName(c)
-						debug.Debug("Targeting kind cluster '%s' belonging to CP '%s/%s'", kindClusterName, cs.WorkspaceNamespace, cs.CPName)
-						if err := con.WriteInternalCall(fmt.Sprintf("%s %s", cfg.KindPluginName, kindClusterName), csData); err != nil {
-							libutils.Fatal(1, "error writing internal call data: %w\n", err)
-						}
-						return
-					default:
-						libutils.Fatal(1, "unsupported provider '%s' for Cluster '%s/%s'\n", p.Spec.ProviderRef.Name, c.Namespace, c.Name)
-					}
+					// switch to cluster
+					switchToClusterByName(cmd.Context(), cs.CPClusterNamespace, cs.CPClusterName, con, cfg, cs)
 				} else {
 					// for v1, we take the shoot information from the APIServer resource
 					if err := req.Require(reqOnboardingCluster, reqWorkspaceNamespace); err != nil {
@@ -379,18 +370,19 @@ Examples:
 
 // callState is used to store information during internal calls to other plugins
 type callState struct {
-	LandscapeName           string          `json:"landscapeName,omitempty"`
-	ProjectName             string          `json:"projectName,omitempty"`
-	ProjectNamespace        string          `json:"projectNamespace,omitempty"` // namespace that belongs to the project, this is the namespace of the Workspace resource
-	WorkspaceName           string          `json:"workspaceName,omitempty"`
-	WorkspaceNamespace      string          `json:"workspaceNamespace,omitempty"` // namespace that belongs to the workspace, not namespace of the workspace resource itself
-	CPName                  string          `json:"cpName,omitempty"`
-	CPClusterName           string          `json:"cpClusterName,omitempty"`           // v2 only: name of the Cluster resource belonging to the CP
-	CPClusterNamespace      string          `json:"cpClusterNamespace,omitempty"`      // v2 only: namespace of the Cluster resource belonging to the CP
-	OriginalState           *state.MCPState `json:"originalState,omitempty"`           // holds the state of the plugin before any internal calls were made
-	IntermediateState       *state.MCPState `json:"intermediateState,omitempty"`       // holds the current state of the plugin, which might be updated during internal calls
-	Final                   bool            `json:"final"`                             // indicates that the target state has been reached only the provider state needs to be adapted
-	OriginalStateKubeconfig []byte          `json:"originalStateKubeconfig,omitempty"` // holds the kubeconfig of the original state, if it belonged to an MCP landscape
+	LandscapeName           string                     `json:"landscapeName,omitempty"`
+	ProjectName             string                     `json:"projectName,omitempty"`
+	ProjectNamespace        string                     `json:"projectNamespace,omitempty"` // namespace that belongs to the project, this is the namespace of the Workspace resource
+	WorkspaceName           string                     `json:"workspaceName,omitempty"`
+	WorkspaceNamespace      string                     `json:"workspaceNamespace,omitempty"` // namespace that belongs to the workspace, not namespace of the workspace resource itself
+	CPName                  string                     `json:"cpName,omitempty"`
+	CPClusterName           string                     `json:"cpClusterName,omitempty"`           // v2 only: name of the Cluster resource belonging to the CP
+	CPClusterNamespace      string                     `json:"cpClusterNamespace,omitempty"`      // v2 only: namespace of the Cluster resource belonging to the CP
+	WorkloadCluster         *commonapi.ObjectReference `json:"workloadCluster,omitempty"`         // v2 only: reference to the workload cluster
+	OriginalState           *state.MCPState            `json:"originalState,omitempty"`           // holds the state of the plugin before any internal calls were made
+	IntermediateState       *state.MCPState            `json:"intermediateState,omitempty"`       // holds the current state of the plugin, which might be updated during internal calls
+	Final                   bool                       `json:"final"`                             // indicates that the target state has been reached only the provider state needs to be adapted
+	OriginalStateKubeconfig []byte                     `json:"originalStateKubeconfig,omitempty"` // holds the kubeconfig of the original state, if it belonged to an MCP landscape
 }
 
 // setDefaultNamespaceInKubeconfig reads the current kubeconfig, and returns a marshalled version of it with the default namespace set to the provided namespace.

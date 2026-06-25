@@ -13,6 +13,7 @@ var (
 	projectArg    string
 	workspaceArg  string
 	cpArg         string
+	workloadArg   string
 	platformArg   bool
 	onboardingArg bool
 	mcpVersionV1  bool
@@ -29,6 +30,7 @@ func init() {
 	TargetCmd.Flags().StringVarP(&cpArg, "mcp", "m", "", "The MCP cluster to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
 	TargetCmd.Flag("mcp").Deprecated = "The '--mcp'/'-m' flag is deprecated and will be removed in a future release. Use '--controlplane' or '-c' instead.\n"
 	TargetCmd.Flags().StringVarP(&cpArg, "controlplane", "c", "", "The ControlPlane cluster to target. Will be prompted for if specified without an argument. Might be recovered from state, if not specified.")
+	TargetCmd.Flags().StringVarP(&workloadArg, "workload", "k", "", "The workload cluster to target (either as <namespace>/<name> or just <name>, if the name is unique). Will be prompted for if specified without an argument. Might be recovered from state, if not specified. v2 only.")
 	TargetCmd.Flags().BoolVar(&platformArg, "platform", false, "Target the landscape's platform cluster.")
 	TargetCmd.Flags().BoolVar(&onboardingArg, "onboarding", false, "Target the landscape's onboarding cluster. Is always assumed to be set if neither '--platform' nor '--controlplane' is specified.")
 	TargetCmd.Flags().BoolVar(&mcpVersionV1, "v1", false, "Use MCP version v1 for this command. Overrides the default MCP version specified in the config.")
@@ -42,9 +44,20 @@ func validateArgs() {
 	if cpArg != "" && onboardingArg {
 		libutils.Fatal(1, "flag '--onboarding' cannot be used together with '--controlplane'\n")
 	}
-	if !platformArg && !onboardingArg && cpArg == "" {
+	if !platformArg && !onboardingArg && cpArg == "" && workloadArg == "" {
 		debug.Debug("Automatically setting '--onboarding' flag because no cluster is targeted.")
 		onboardingArg = true
+	}
+	if workloadArg != "" {
+		if mcpVersionV1 {
+			libutils.Fatal(1, "flag '--workload' is only supported for MCP version v2\n")
+		}
+		if platformArg || onboardingArg {
+			libutils.Fatal(1, "flag '--workload' cannot be used together with '--platform' or '--onboarding'\n")
+		}
+		if (projectArg != "" || workspaceArg != "") && cpArg == "" {
+			libutils.Fatal(1, "flag '--workload' cannot be used together with '--project' or '--workspace' without specifying '--controlplane'\n")
+		}
 	}
 	if mcpVersionV1 && mcpVersionV2 {
 		libutils.Fatal(1, "flags '--v1' and '--v2' are mutually exclusive\n")
@@ -98,6 +111,13 @@ func parseArgs(cmd *cobra.Command, args []string) {
 				i++
 			} else {
 				cpArg = PromptForArg
+			}
+		case "--workload", "-k":
+			if i+1 < len(args) && !isFlag(args[i+1]) {
+				workloadArg = args[i+1]
+				i++
+			} else {
+				workloadArg = PromptForArg
 			}
 		case "--platform":
 			platformArg = true
