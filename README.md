@@ -46,6 +46,7 @@ The plugin takes a small configuration in the kubeswitcher config. The configura
         additionalGardenerProjects: # see below for explanation
         - my-other-project
         platformClusterDefaultNamespace: openmcp-system # which namespace to set as default when switching to this landscape's platform cluster, defaults to 'default'
+        workloadClusterPurpose: workload # the purpose used for workload clusters, defaults to 'workload' if not specified
       production: # arbitrary landscape identifier
         <...>
 ```
